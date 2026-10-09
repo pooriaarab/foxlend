@@ -66,18 +66,25 @@ async function holdSettings(ctx: LoanContext): Promise<void> {
   }
 }
 
+/** Close every tab of one container. Query again until none is left. */
+async function closeTabs(b: BrowserLike, id: string): Promise<void> {
+  for (let round = 0; ; round++) {
+    const open = (await b.tabs.query({ cookieStoreId: id })).flatMap((t) => (t.id === undefined ? [] : [t.id]));
+    if (open.length === 0) return;
+    if (round === 5) throw new Error(`Tabs stay open in ${id}.`);
+    await b.tabs.remove(open);
+  }
+}
+
 /** Close the loan tabs, clear and remove the container, and revoke the grant. */
 export async function teardown(ctx: LoanContext, loan: Pick<Loan, "cookieStoreId" | "grantId">): Promise<void> {
   const b = ctx.browser;
   const id = loan.cookieStoreId;
   if (id) {
+    // From here on the guard blocks this container for good, also after a restart (L17).
+    await ctx.store.retire(id);
     // Removing a container does not close its tabs (L5). Close them first.
-    for (let round = 0; ; round++) {
-      const open = (await b.tabs.query({ cookieStoreId: id })).flatMap((t) => (t.id === undefined ? [] : [t.id]));
-      if (open.length === 0) break;
-      if (round === 5) throw new Error(`Tabs stay open in ${id}.`);
-      await b.tabs.remove(open);
-    }
+    await closeTabs(b, id);
     // Only "not found" means gone. Any other error keeps the loan revoking (L13).
     const exists = await b.contextualIdentities.get(id).then(
       () => true,
@@ -94,6 +101,8 @@ export async function teardown(ctx: LoanContext, loan: Pick<Loan, "cookieStoreId
       }
       await b.contextualIdentities.remove(id);
     }
+    // A tab can open after the last query and before the remove (L17).
+    await closeTabs(b, id);
   }
   if (loan.grantId) await ctx.host.revokeGrant(loan.grantId);
 }

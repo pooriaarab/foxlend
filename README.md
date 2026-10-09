@@ -293,6 +293,12 @@ your own tab is still logged in with the same cookies.
 - When a site uses only `Secure` cookies, copies need an `https:` URL. The
   E2E test uses `http:` sites on `.localhost`, so `Secure` cookies and
   first-party isolation are covered by the Node tests only.
+- Extensions that move tabs between containers (for example Multi-Account
+  Containers or Temporary Containers) can open a URL that foxlend blocked in
+  another container, outside the loan. Do not use them with foxlend.
+- When foxlend cannot read its loan records (a storage error), the guard
+  blocks requests from all your containers other than the default one, not
+  only the loan containers. This is on purpose: it fails closed.
 - Run one lender, in the background page. Two lenders on the same storage,
   for example one in a sidebar and one in the background, can overwrite each
   other's records.
