@@ -58,7 +58,7 @@ the agent to send your data somewhere else.
 | E3 | An allowed host redirects to a blocked host. | Judge the new URL too. Firefox fires `onBeforeRequest` again for the redirect target. | E2E |
 | E4 | A request that is not a page load passes: a WebSocket, a beacon, a prefetch, an image, or a `fetch` from a service worker. | The listener has no type filter, so the same rule applies to every type. | E2E |
 | E5 | A speculative connection (`<link rel="preconnect">`) opens a TCP connection to a blocked host. `webRequest` never sees it. | A second layer: `proxy.onRequest` sends a request from a loan container to a blocked host to a SOCKS proxy that does not exist, with `proxyDNS`. Firefox then makes no DNS lookup and no connection. | E2E |
-| E6 | A DNS prefetch (`<link rel="dns-prefetch">`) puts data in a host name that goes to a DNS server. Neither layer sees it. | Turn off network prediction while a loan is active, and give the setting back when the last loan ends. | `tests/loans.test.ts` |
+| E6 | A DNS prefetch (`<link rel="dns-prefetch">`) puts data in a host name that goes to a DNS server. Neither layer sees it. | Turn off network prediction while a loan is active, and give the setting back when the last loan ends. The setting also stops link prefetch. It does not stop `<link rel="preconnect">` (seen in Firefox 157), so E5 is still needed. | `tests/loans.test.ts`, E2E |
 | E7 | DNS rebinding: an allowed host name starts to resolve to another address. | Not detected. The allow list trusts the DNS of the hosts on it. An IP address or `localhost` is blocked unless it is on the list exactly. This is a documented limit. | `tests/egress.test.ts` |
 | E8 | A request uses a scheme other than `http`, `https`, `ws`, or `wss`. | Cancel it. `data:`, `blob:`, and `about:` pass, because they do not leave the browser. | `tests/egress.test.ts` |
 | E9 | The URL does not parse, or the host is an IPv6 address. | Cancel it. | `tests/egress.test.ts` |
@@ -89,7 +89,9 @@ the agent to send your data somewhere else.
 ## End to end
 
 `e2e/run.mjs` serves a test bank site on `www.bank.localhost` and an attacker
-on `attacker.test`, both mapped to `127.0.0.1`. It checks the full flow in a
+on `attacker.test`, all mapped to `127.0.0.1`. Puppeteer does not see tabs
+in a container made after it started, so the test reads the bank server log
+and takes loan tab screenshots with `tabs.captureTab`. It checks the full flow in a
 real Firefox and writes `artifacts/e2e-<date>.json`.
 
 | # | Check |
@@ -101,3 +103,4 @@ real Firefox and writes `artifacts/e2e-<date>.json`.
 | X5 | A page with a hidden prompt injection tries to send data to `attacker.test` in many ways. Each one is blocked and reported. The attacker server gets no request and no connection. |
 | X6 | Your own default tab can still reach `attacker.test`. |
 | X7 | Revoke: the container, its tab, and its cookies are gone. Your own tab is still logged in, and your cookies did not change. |
+| X8 | A loan with a 3 second TTL and a hidden tab ends at its alarm, and its container is gone. |
