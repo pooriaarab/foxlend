@@ -38,11 +38,13 @@ into the loan container. It never writes to your default container.
 | K4 | A partitioned cookie leaks: the site's cookie from the partition of another top-level site is copied. | No copy. It belongs to the other site. | `tests/cookies.test.ts` |
 | K5 | A partitioned cookie becomes a first-party cookie in the loan, because the copy drops `partitionKey`. | Keep `partitionKey` as it is. | `tests/cookies.test.ts`, E2E |
 | K6 | `HttpOnly`, `Secure`, `SameSite`, the path, or host-only is lost. A page script could then read a session cookie, or a host-only cookie goes to all subdomains. | Keep each flag. A host-only cookie is set with no `domain`. | `tests/cookies.test.ts`, E2E |
-| K7 | Expiry is not capped. A copied cookie stays valid after the loan ends, also when the extension is gone. | The copy expires at the earlier of its own expiry and the loan end. A session cookie gets the loan end. | `tests/cookies.test.ts`, E2E |
+| K7 | Expiry is not capped. A copied cookie stays valid after the loan ends, also when the extension is gone. | The copy expires at the earlier of its own expiry and the loan end. A session cookie gets the loan end. This caps the copies only: a cookie that the site sets in the loan container during the loan is not capped (see L4). | `tests/cookies.test.ts`, E2E |
 | K8 | A cookie that has expired is copied. | No copy. | `tests/cookies.test.ts` |
 | K9 | First-party isolation is on. `cookies.getAll` and `cookies.set` fail without `firstPartyDomain`. | Read with `firstPartyDomain: null`, which matches all, and set each copy with its own `firstPartyDomain`. | `tests/cookies.test.ts` |
 | K10 | Your own session is changed: the copy writes to, or removes from, your default container, and you are logged out. | Only read the default container. A loan and its revoke leave your cookies byte for byte the same. | `tests/loans.test.ts`, E2E |
 | K11 | With `match: "host"`, a cookie that the lent host never receives is copied (a host-only cookie of `mail.bank.test` for a loan of `www.bank.test`). | Copy only the cookies that the browser sends to that host: its host-only cookies and the domain cookies of the host and its parents inside the site. | `tests/cookies.test.ts` |
+| K13 | With `match: "host"`, a partitioned cookie of another subdomain in the site partition is copied (`mail.bank.test` for a loan of `www.bank.test`). | Apply the same host rule to partitioned cookies whose domain is in the site. | `tests/cookies.test.ts` |
+| K14 | First-party isolation is on, and the site's cookie from another first party (`firstPartyDomain: "evil.example"`) is copied. | Skip a cookie whose `firstPartyDomain` is set and is not the site, with reason `other-partition`. | `tests/cookies.test.ts` |
 | K12 | Firefox refuses one copy (for example a `Secure` cookie for an `http:` URL). | Do not stop the loan. Report the cookie in `loan.skipped` with the reason. | `tests/loans.test.ts` |
 
 ## Egress allow list
@@ -67,6 +69,7 @@ the agent to send your data somewhere else.
 | E12 | The event page was unloaded, so the loan list is not in memory when a request comes. | Wait for the list from storage before the answer. Never let a request pass without a judgment. | `tests/loans.test.ts` |
 | E13 | The loan list cannot be read from storage. | Cancel every request from any container other than the default and the private one. | `tests/loans.test.ts` |
 | E14 | The guard blocks your own tabs. | Only requests with the `cookieStoreId` of a loan are judged. The default container and other containers pass. | E2E |
+| E16 | `judge()` throws: a stored pattern no longer parses (the public suffix list changed), or a loan record is damaged. Firefox lets a request pass when a blocking listener throws. | A pattern that does not parse matches nothing. Any other error in the guard blocks the request with reason `error`. Found in review after the guard PR. | `tests/egress.test.ts`, `tests/loans.test.ts` |
 | E15 | The `webRequest` filter cannot select one container (Firefox 157 refuses a `cookieStoreId` filter). | Listen to all URLs and read `details.cookieStoreId` in the listener. | E2E |
 
 ## Loans
@@ -76,7 +79,7 @@ the agent to send your data somewhere else.
 | L1 | Two loans for the same site share a container or a grant, so one revoke breaks the other loan or misses part of it. | Each loan gets its own container, grant, and alarm. A revoke touches only its own loan. | `tests/loans.test.ts` |
 | L2 | Firefox stops between the container create and the record write, so a container is left behind. | Write the loan record before the create, and the `cookieStoreId` right after. At start, revoke records that never became active, and remove containers with the foxlend name, color, and icon that no record holds. | `tests/loans.test.ts` |
 | L3 | A lend fails half way (a cookie read, the grant, or the tab). | Undo the steps done so far: the container, the cookies, and the grant. Then throw. | `tests/loans.test.ts` |
-| L4 | The TTL alarm does not run because Firefox was closed. | At start, revoke every loan whose time is over. The cookies have already expired (K7), and the guard blocks the container (E10). | `tests/loans.test.ts` |
+| L4 | The TTL alarm does not run because Firefox was closed. | At start, revoke every loan whose time is over. The copied cookies have already expired (K7), and the guard blocks the container (E10). New cookies that the site set during the loan stay until this revoke. This is a documented limit. | `tests/loans.test.ts` |
 | L5 | Removing a container does not close its tabs (seen in Firefox 157). The tab stays open in a container that no longer exists. | Close the tabs first. Query again until no tab is left, then remove the container. | `tests/loans.test.ts`, E2E |
 | L6 | `browsingData.remove` throws when it is asked to clear service workers for one container, and then clears nothing. | Ask only for cookies, local storage, and IndexedDB. Service workers are a documented limit. | `tests/loans.test.ts`, E2E |
 | L7 | A revoke step fails. | Keep the loan in the `revoking` state, so the guard still blocks it. Throw. The next start tries the revoke again. | `tests/loans.test.ts` |
@@ -84,6 +87,7 @@ the agent to send your data somewhere else.
 | L9 | The foxgate grant stays after the loan. | Revoke the grant with the loan. The grant also expires at the loan end. | `tests/loans.test.ts` |
 | L10 | The TTL is not a positive finite number, or it is longer than `maxTtlMs`. | Refuse with `bad-ttl`. | `tests/loans.test.ts` |
 | L11 | The task URL is on a host that the loan blocks. | Refuse with `bad-url`. The agent could not use it. | `tests/loans.test.ts` |
+| L13 | `contextualIdentities.get` fails for a reason other than "not found" during a revoke. The revoke then skips the clear and the remove, and deletes the record of a container that still exists. | Treat only the Firefox "Invalid contextual identity" error as "gone". Throw for any other error, so the loan stays `revoking`. | `tests/loans.test.ts` |
 | L12 | `tabs.hide` fails, for example without the `tabHide` permission. | Keep the loan, open the tab, and set `loan.hidden` to `false`. | `tests/loans.test.ts` |
 
 ## End to end

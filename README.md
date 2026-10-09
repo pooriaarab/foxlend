@@ -284,7 +284,10 @@ your own tab is still logged in with the same cookies.
 - The proxy layer was not tested together with another extension that sets
   a proxy.
 - If the TTL ends while Firefox is closed, the revoke happens at the next
-  start. The copied cookies have already expired by then.
+  start. The copied cookies have already expired by then. Cookies that the
+  site set in the loan container during the loan (for example a new session
+  token) are not capped, so they stay valid until that revoke. The same
+  holds when a revoke fails or the extension is off.
 
 ## Part of the fox primitives
 

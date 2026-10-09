@@ -21,7 +21,7 @@ export interface RequestInfo {
   cookieStoreId?: string;
 }
 
-export type BlockReason = "not-allowed" | "expired" | "revoking" | "bad-url" | "no-state";
+export type BlockReason = "not-allowed" | "expired" | "revoking" | "bad-url" | "no-state" | "error";
 export type Verdict = { block: false } | { block: true; loanId: string; reason: BlockReason; host?: string };
 
 const PASS: Verdict = { block: false };
@@ -30,13 +30,18 @@ const LOCAL = new Set(["data:", "blob:", "about:"]);
 const OWN_STORES = new Set(["firefox-default", "firefox-private"]);
 const compiled = new Map<string, DomainPattern>();
 
-const compile = (pattern: string, publicSuffix: PublicSuffix) => {
+// A pattern that no longer parses (the public suffix list changed) matches nothing (E16).
+const matches = (host: string, pattern: string, publicSuffix: PublicSuffix) => {
   let parsed = compiled.get(pattern);
   if (!parsed) {
-    parsed = parsePattern(pattern, publicSuffix);
+    try {
+      parsed = parsePattern(pattern, publicSuffix);
+    } catch {
+      return false;
+    }
     compiled.set(pattern, parsed);
   }
-  return parsed;
+  return matchesPattern(host, parsed);
 };
 
 /** The host of a network URL, "local" for a URL that stays in the browser, or undefined for anything else. */
@@ -71,5 +76,5 @@ export function judge(request: RequestInfo, loans: LoanState[] | undefined, now:
   if (now >= loan.expiresAt) return block("expired");
   if (host === "local") return PASS;
   if (host === undefined) return block("bad-url");
-  return loan.patterns.some((p) => matchesPattern(host, compile(p, publicSuffix))) ? PASS : block("not-allowed");
+  return loan.patterns.some((p) => matches(host, p, publicSuffix)) ? PASS : block("not-allowed");
 }

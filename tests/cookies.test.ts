@@ -131,4 +131,20 @@ describe("cookie copy", () => {
     expect(p.skipped).toEqual([]);
     expect(p.set.every((s) => s.storeId === "firefox-container-9")).toBe(true);
   });
+
+  it("K13: with match host, applies the host rule to partitioned cookies of the site too", () => {
+    const key = { topLevelSite: "http://bank.test" };
+    const p = plan(
+      [cookie({ name: "own", partitionKey: key }), cookie({ name: "sibling", domain: "mail.bank.test", partitionKey: key })],
+      "www.bank.test",
+      "host",
+    );
+    expect(names(p)).toEqual(["own"]);
+  });
+
+  it("K14: skips a cookie from another first party when first-party isolation is on", () => {
+    const p = plan([cookie({ name: "mine", firstPartyDomain: "bank.test" }), cookie({ name: "theirs", firstPartyDomain: "evil.example" })]);
+    expect(names(p)).toEqual(["mine"]);
+    expect(p.skipped).toEqual([{ name: "theirs", domain: "www.bank.test", reason: "other-partition" }]);
+  });
 });

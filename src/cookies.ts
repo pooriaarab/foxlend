@@ -76,20 +76,28 @@ export function planCopy(cookies: Cookie[], options: CopyOptions): { set: Cookie
   for (const cookie of cookies) {
     const domain = cookie.domain.replace(/^\./, "").toLowerCase();
     const skip = (reason: SkippedCookie["reason"]) => skipped.push({ name: cookie.name, domain: cookie.domain, reason });
+    // First-party isolation: a cookie of the site kept for another first party (K14).
+    if (cookie.firstPartyDomain && cookie.firstPartyDomain !== site) {
+      if (within(domain, site)) skip("other-partition");
+      continue;
+    }
+    // match "host": only what the browser sends to this host (K11, K13).
+    const hostGets = cookie.hostOnly ? domain === host : within(host, domain);
     const topLevelSite = cookie.partitionKey?.topLevelSite;
     if (topLevelSite) {
       if (partitionSite(topLevelSite, options.publicSuffix) !== site) {
         if (within(domain, site)) skip("other-partition");
         continue;
       }
-      if (!within(domain, site) && !allowed.some((p) => matchesPattern(domain, p))) {
+      if (within(domain, site)) {
+        if (options.match === "host" && !hostGets) continue;
+      } else if (!allowed.some((p) => matchesPattern(domain, p))) {
         skip("not-allowed");
         continue;
       }
     } else {
       if (!within(domain, site)) continue;
-      // match "host": only what the browser sends to this host.
-      if (options.match === "host" && !(cookie.hostOnly ? domain === host : within(host, domain))) continue;
+      if (options.match === "host" && !hostGets) continue;
     }
     const expires = cookie.session || cookie.expirationDate === undefined ? Infinity : cookie.expirationDate;
     if (expires * 1000 <= options.now) {

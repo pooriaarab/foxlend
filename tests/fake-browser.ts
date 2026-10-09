@@ -24,7 +24,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
   let nextContainer = 1;
   let nextTab = 1;
   const on = { request: [] as Listener<[RequestDetails]>[], proxy: [] as Listener<[RequestDetails]>[], alarm: [] as Listener<[{ name: string }]>[], startup: [] as Listener[] };
-  const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; tabsHide?: () => void } = {};
+  const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; containerGet?: () => void; tabsHide?: () => void } = {};
   const prediction: { value: boolean | undefined } = { value: undefined };
   const jar = (storeId: string) => {
     if (!cookies.has(storeId)) cookies.set(storeId, []);
@@ -64,6 +64,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
         return containers.filter((c) => d.name === undefined || c.name === d.name).map((c) => ({ ...c }));
       },
       async get(id) {
+        hooks.containerGet?.();
         const found = containers.find((c) => c.cookieStoreId === id);
         if (!found) throw new Error(`Invalid contextual identity: ${id}`);
         return { ...found };
