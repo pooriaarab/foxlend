@@ -8,22 +8,36 @@
       "id": "foxlend@pooriaarab",
       "strict_min_version": "153.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "cookies",
+    "contextualIdentities",
+    "browsingData",
+    "tabs",
+    "tabHide",
+    "webRequest",
+    "webRequestBlocking",
+    "proxy",
+    "privacy",
+    "publicSuffix"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "action": {
     "default_title": "foxlend demo",
     "default_popup": "popup.html"
-  },
-  "content_scripts": [
-    {
-      "matches": ["http://127.0.0.1/*"],
-      "js": ["content.js"]
-    }
-  ]
+  }
 }
