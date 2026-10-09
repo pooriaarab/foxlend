@@ -216,6 +216,9 @@ next start tries again.
 with a scope, a time limit, and an allow list. It lists the active loans with
 Revoke, and it shows a live log of blocked requests.
 
+Install from AMO: [addons.mozilla.org/firefox/addon/foxlend](https://addons.mozilla.org/firefox/addon/foxlend/)
+(pending AMO review; the link works after approval).
+
 ```bash
 pnpm install
 pnpm e2e          # the full pitch flow in Firefox; writes artifacts/e2e-<date>.json
