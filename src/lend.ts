@@ -34,9 +34,12 @@ export interface LoanContext {
   now: () => number;
   publicSuffix: PublicSuffix;
   maxTtlMs: number;
+  /** Turn off network prediction while a loan is active (E6). */
+  stopPrediction: boolean;
 }
 
 export const CONTAINER = { prefix: "Agent · ", color: "purple", icon: "fingerprint" } as const;
+export const alarmName = (loanId: string) => `foxlend:${loanId}`;
 const SCOPES: readonly string[] = ["read", "fill", "submit", "pay"];
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const cookieUrl = (c: Cookie) => `${c.secure ? "https" : "http"}://${c.domain.replace(/^\./, "")}${c.path}`;
@@ -127,7 +130,10 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
         }
       }
       const grant = await ctx.host.addGrant({ scope: options.scope, domains: patterns, expiresAt: loan.expiresAt, ...(options.tools ? { tools: options.tools } : {}) });
+      b.alarms.create(alarmName(loan.id), { when: loan.expiresAt });
       await put({ state: "active", grantId: grant.id, copied, skipped });
+      // DNS prefetch is outside both guard layers (E6). A setting that another extension controls stays as it is.
+      if (ctx.stopPrediction) await b.privacy?.network.networkPredictionEnabled.set({ value: false }).catch(() => false);
       const tab = await b.tabs.create({ url, cookieStoreId: container.cookieStoreId, active: !options.hidden });
       let hidden = false;
       if (options.hidden && tab.id !== undefined) hidden = await b.tabs.hide([tab.id]).then(() => true, () => false);
