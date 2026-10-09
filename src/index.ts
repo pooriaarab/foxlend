@@ -7,3 +7,4 @@ export { emitter, type BrowserEvent, type BrowserLike, type ContextualIdentity, 
 export { createFoxlend, type Foxlend, type FoxlendOptions } from "./foxlend.js";
 export { DEAD_PROXY, type BlockedRequest } from "./guard.js";
 export type { Loan } from "./state.js";
+export { CONTAINER, type LendOptions } from "./lend.js";
