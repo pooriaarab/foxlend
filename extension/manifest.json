@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "foxlend demo",
+  "version": "0.1.0",
+  "description": "Lend one login to an AI agent in its own Firefox container, and take it back.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "foxlend@pooriaarab",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": ["storage"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "foxlend demo",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
