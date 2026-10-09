@@ -71,6 +71,10 @@ export interface BrowserLike {
   webRequest: { onBeforeRequest: BrowserEvent<(details: RequestDetails) => Maybe<{ cancel: boolean }>> };
   proxy?: { onRequest: BrowserEvent<(details: RequestDetails) => Maybe<ProxyInfo>> };
   privacy?: { network: Record<BrowserSettingName, BrowserSetting | undefined> };
+  permissions: {
+    contains(permissions: { origins: string[] }): Promise<boolean>;
+    onRemoved: BrowserEvent<(permissions: { origins?: string[] }) => void>;
+  };
   runtime: { onStartup: BrowserEvent<() => void> };
   publicSuffix?: PublicSuffixApi;
 }

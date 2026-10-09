@@ -1,13 +1,13 @@
 // Take a login back (docs/failure-modes.md L1, L4-L9, E6, E11), and the
 // sweep that runs when foxlend starts (L2, L4).
 import type { Loan } from "./state.js";
-import { alarmName, CONTAINER, releaseSettings, teardown, type LoanContext } from "./lend.js";
+import { alarmName, CONTAINER, hasHostAccess, releaseSettings, teardown, type LoanContext } from "./lend.js";
 import { FoxlendError } from "./errors.js";
 
 /** Why a loan ended. "startup": a loan that never became active, or a revoke that failed before. */
 export interface RevokedEvent {
   loan: Loan;
-  reason: "user" | "ttl" | "startup";
+  reason: "user" | "ttl" | "startup" | "permission";
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -50,10 +50,12 @@ export async function revokeNow(ctx: LoanContext, id: string, reason: RevokedEve
  */
 export async function sweepNow(ctx: LoanContext, emit: (event: RevokedEvent) => void): Promise<void> {
   const now = ctx.now();
+  // Without access to all sites the guard sees nothing, so no loan may stay (E19).
+  const blind = !(await hasHostAccess(ctx));
   for (const loan of await ctx.store.loans()) {
     const expired = loan.expiresAt <= now;
-    if (expired || loan.state !== "active") {
-      await revokeNow(ctx, loan.id, expired ? "ttl" : "startup", emit).catch(() => false);
+    if (blind || expired || loan.state !== "active") {
+      await revokeNow(ctx, loan.id, blind ? "permission" : expired ? "ttl" : "startup", emit).catch(() => false);
     } else {
       ctx.browser.alarms.create(alarmName(loan.id), { when: loan.expiresAt });
     }

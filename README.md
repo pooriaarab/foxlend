@@ -78,8 +78,11 @@ flowchart LR
   V --> X[Close tabs, clear data, remove the container, revoke the grant]
 ```
 
-1. `lend` finds the site of the domain (the registrable domain, eTLD+1) with
-   `browser.publicSuffix`. The loan allows the site, its subdomains, and the
+1. `lend` refuses the loan unless the extension has access to all sites,
+   because without it the guard cannot see the loan's requests. If you
+   remove that access later in `about:addons`, foxlend revokes every loan.
+   Then `lend` finds the site of the domain (the registrable domain,
+   eTLD+1) with `browser.publicSuffix`. The loan allows the site, its subdomains, and the
    hosts in `allow`.
 2. It writes the loan record first, so a crash cannot leave a container that
    no record knows about.
@@ -160,7 +163,7 @@ object.
 | `listLoans()` | The active loans, and loans that wait for a revoke to finish. |
 | `sweep()` | Revokes loans whose time is over and removes foxlend containers that no loan holds. foxlend runs it at start. |
 | `onBlocked` | `addListener(fn)`. `fn` gets `{ loanId, url, host, type, initiator, layer, reason, at }`. |
-| `onRevoked` | `addListener(fn)`. `fn` gets `{ loan, reason }`. `reason` is `user`, `ttl`, or `startup`. |
+| `onRevoked` | `addListener(fn)`. `fn` gets `{ loan, reason }`. `reason` is `user`, `ttl`, `startup`, or `permission`. |
 
 ### `lend` options
 
@@ -191,7 +194,7 @@ A `Loan` has these fields:
 ### Errors
 
 `FoxlendError` has a `code`: `bad-domain`, `bad-allow`, `bad-ttl`, `bad-url`,
-`bad-scope`, `setting-failed`, `lend-failed`, `revoke-failed`, or
+`bad-scope`, `setting-failed`, `no-host-access`, `lend-failed`, `revoke-failed`, or
 `storage-error`. A failed
 lend undoes its steps. A failed revoke keeps blocking the container, and the
 next start tries again.
@@ -246,6 +249,7 @@ your own tab is still logged in with the same cookies.
 | `tabs.create` with `cookieStoreId`, `tabs.query`, `tabs.remove` | [tabs.create](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/create) | Open the task tab in the container, and close every tab of the loan. |
 | `tabs.hide` | [tabs.hide](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/hide) | Hide the task tab. Permission `tabHide`. |
 | `publicSuffix.getDomain`, `getKnownSuffix` | [publicSuffix](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/publicSuffix) | Find the site of a host with no bundled list (Firefox 153+). |
+| `permissions.contains`, `permissions.onRemoved` | [permissions](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions) | Refuse a loan without access to all sites, and revoke every loan when the user removes that access. |
 | `alarms` | [alarms](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/alarms) | Revoke a loan at its end, also when the event page is not loaded. |
 | `runtime.onStartup` | [runtime.onStartup](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/onStartup) | Revoke loans whose time ended while Firefox was closed. |
 | `storage.local` | [storage.local](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local) | Keep the loan records. |

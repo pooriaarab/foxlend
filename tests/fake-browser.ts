@@ -27,6 +27,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
   const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; containerGet?: () => void; tabsHide?: () => void; tabsCreate?: () => void; alarmsCreate?: () => void } = {};
   // A browser-wide setting. `level` and `setResult` copy what another extension or a policy can do (E18).
   type Setting = { value: boolean | undefined; level: string; setResult: boolean };
+  const access = { all: true, removed: [] as Listener<[{ origins?: string[] }]>[] };
   const prediction: Setting = { value: undefined, level: "controllable_by_this_extension", setResult: true };
   const webrtc: Setting = { value: undefined, level: "controllable_by_this_extension", setResult: true };
   const setting = (s: Setting) => ({
@@ -175,6 +176,10 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
         peerConnectionEnabled: setting(webrtc),
       },
     },
+    permissions: {
+      contains: async (p: { origins?: string[] }) => access.all || !(p.origins ?? []).includes("<all_urls>"),
+      onRemoved: { addListener: (fn: Listener<[{ origins?: string[] }]>) => void access.removed.push(fn) },
+    },
     runtime: { onStartup: { addListener: (fn) => void on.startup.push(fn) } },
     publicSuffix: psl,
   };
@@ -190,6 +195,12 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
     hooks,
     prediction,
     webrtc,
+    access,
+    /** The user removes access to all sites in about:addons. */
+    removeHostAccess: async () => {
+      access.all = false;
+      access.removed.forEach((fn) => fn({ origins: ["<all_urls>"] }));
+    },
     /** Send one request through every webRequest listener. */
     request: async (d: RequestDetails) => {
       const answers = await Promise.all(on.request.map((fn) => fn(d)));
