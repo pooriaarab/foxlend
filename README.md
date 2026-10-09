@@ -139,7 +139,7 @@ object.
 | Option | Default | What it does |
 |---|---|---|
 | `browser` | required | The WebExtension `browser` object. |
-| `host` | required | The foxgate `host`. foxlend calls `addGrant` and `revokeGrant`. |
+| `host` | required | The foxgate `host`. foxlend calls `addGrant`, `revokeGrant`, and `grants`. |
 | `publicSuffix` | `withDefaultRule(browser.publicSuffix)` | Finds the site of a host. Give foxgate the same object. |
 | `now` | `Date.now` | The clock, in ms since 1970. |
 | `maxTtlMs` | 24 hours | The longest loan. |
