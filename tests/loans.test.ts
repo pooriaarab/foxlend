@@ -143,7 +143,7 @@ describe("lend", () => {
 
   it("L3: undoes a lend that fails half way", async () => {
     const { fb } = lending();
-    const broken = { addGrant: async () => Promise.reject(new Error("grant store down")), revokeGrant: async () => true };
+    const broken = { addGrant: async () => Promise.reject(new Error("grant store down")), revokeGrant: async () => true, grants: async () => [] };
     const lender = createFoxlend({ browser: fb.browser, host: broken, now: () => NOW });
     expect(await errorCode(lender.lend(TASK))).toBe("lend-failed");
     expect(fb.containers).toEqual([]);
@@ -303,5 +303,44 @@ describe("revoke and sweep", () => {
     expect(await errorCode(lender.revoke(loan))).toBe("revoke-failed");
     expect((await lender.listLoans()).map((l) => l.state)).toEqual(["revoking"]);
     expect(fb.containers).toHaveLength(1);
+  });
+
+  it("L14: writes grantRequested before addGrant, and the start sweep revokes a grant that no record names", async () => {
+    const fb = fakeBrowser();
+    const { host } = createFoxgate({ tools: { open_page: "read" }, publicSuffix: ps, now: () => NOW });
+    const seen: unknown[] = [];
+    const watched = { ...host, addGrant: async (g: Parameters<typeof host.addGrant>[0]) => (seen.push((fb.data.foxlend as { loans: { grantRequested?: boolean }[] }).loans.at(-1)?.grantRequested), host.addGrant(g)) };
+    const loan = await createFoxlend({ browser: fb.browser, host: watched, now: () => NOW }).lend(TASK);
+    expect(seen).toEqual([true]);
+    expect(loan.grantRequested).toBe(true);
+
+    // A crash after addGrant: the record has grantRequested and no grantId.
+    const crashed = setup(undefined, fakeBrowser());
+    const container = await crashed.fb.browser.contextualIdentities.create({ name: "Agent · bank.test", color: "purple", icon: "fingerprint" });
+    const orphan = await crashed.host.addGrant({ scope: "read", domains: ["bank.test", "*.bank.test"], expiresAt: NOW + 60_000 });
+    const own = await crashed.host.addGrant({ scope: "read", domains: ["bank.test", "*.bank.test"], expiresAt: NOW + 99_000 });
+    crashed.fb.data.foxlend = { loans: [{ id: "L0", cookieStoreId: container.cookieStoreId, patterns: ["bank.test", "*.bank.test"], expiresAt: NOW + 60_000, scope: "read", state: "creating", grantRequested: true, domain: "www.bank.test" }] };
+    // The restart: a new lender on the same browser and the same foxgate host.
+    await createFoxlend({ browser: crashed.fb.browser, host: crashed.host, now: () => NOW }).sweep();
+    expect((await crashed.host.grants()).map((g) => g.id)).toEqual([own.id]);
+    expect(orphan.id).not.toBe(own.id);
+    expect(crashed.fb.containers).toEqual([]);
+  });
+
+  it("L15: a lend that fails after prediction was turned off gives the setting back", async () => {
+    const { fb, lender } = lending();
+    fb.hooks.tabsCreate = () => {
+      throw new Error("no window");
+    };
+    expect(await errorCode(lender.lend(TASK))).toBe("lend-failed");
+    expect(await lender.listLoans()).toEqual([]);
+    expect(fb.prediction.value).toBeUndefined();
+  });
+
+  it("L15: the start sweep gives the setting back when no loan is active", async () => {
+    const { fb, lender } = lending();
+    fb.prediction.value = false;
+    await lender.sweep();
+    expect(fb.prediction.value).toBeUndefined();
   });
 });

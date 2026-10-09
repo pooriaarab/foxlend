@@ -11,7 +11,7 @@ export interface FoxlendOptions {
   /** The WebExtension `browser` object. */
   browser: BrowserLike;
   /** The foxgate host. foxlend adds one grant per loan and revokes it with the loan. */
-  host: Pick<Host, "addGrant" | "revokeGrant">;
+  host: Pick<Host, "addGrant" | "revokeGrant" | "grants">;
   /** Default: withDefaultRule(browser.publicSuffix). Give foxgate the same object. */
   publicSuffix?: PublicSuffix;
   /** The clock, in ms since 1970. Default: Date.now. */
