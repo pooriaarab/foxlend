@@ -24,7 +24,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
   let nextContainer = 1;
   let nextTab = 1;
   const on = { request: [] as Listener<[RequestDetails]>[], proxy: [] as Listener<[RequestDetails]>[], alarm: [] as Listener<[{ name: string }]>[], startup: [] as Listener[] };
-  const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; containerGet?: () => void; tabsHide?: () => void; tabsCreate?: () => void; alarmsCreate?: () => void } = {};
+  const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void | Promise<void>; containerGet?: () => void; tabsHide?: () => void; tabsCreate?: () => void; alarmsCreate?: () => void } = {};
   // A browser-wide setting. `level` and `setResult` copy what another extension or a policy can do (E18).
   type Setting = { value: boolean | undefined; level: string; setResult: boolean };
   const access = { all: true, removed: [] as Listener<[{ origins?: string[] }]>[] };
@@ -65,7 +65,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
         return { ...ci };
       },
       async remove(id) {
-        hooks.containerRemove?.();
+        await hooks.containerRemove?.();
         const i = containers.findIndex((c) => c.cookieStoreId === id);
         if (i < 0) throw new Error(`Invalid contextual identity: ${id}`);
         containers.splice(i, 1);
