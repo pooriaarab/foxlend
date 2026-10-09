@@ -41,7 +41,9 @@ export function attachGuard({ browser, store, now, publicSuffix, proxyLayer, onB
     // Firefox lets a request pass when a blocking listener throws, so an error blocks (E16).
     let verdict: Verdict;
     try {
-      verdict = judge(details, loans, now(), publicSuffix);
+      // A removed loan container is blocked as if it were still being revoked (L17).
+      const all = loans && [...loans, ...store.retired().map((id) => ({ id: "retired", cookieStoreId: id, patterns: [], expiresAt: 0, state: "revoking" as const }))];
+      verdict = judge(details, all, now(), publicSuffix);
     } catch {
       verdict = { block: true, loanId: "unknown", reason: "error" };
     }

@@ -415,4 +415,21 @@ describe("revoke and sweep", () => {
     expect(await lender.listLoans()).toEqual([]);
     expect(revoked.map((r) => r.reason)).toEqual(["permission"]);
   });
+
+  it("L17: closes a tab that opens during the revoke, and blocks a removed container for good", async () => {
+    const { fb, host, lender } = lending();
+    const loan = await lender.lend(TASK);
+    fb.hooks.containerRemove = async () => {
+      delete fb.hooks.containerRemove;
+      await fb.browser.tabs.create({ url: "http://www.bank.test/late", cookieStoreId: loan.cookieStoreId!, active: false });
+    };
+    await lender.revoke(loan);
+    expect(fb.tabs.filter((t) => t.cookieStoreId === loan.cookieStoreId)).toEqual([]);
+    const late = { url: "http://www.bank.test/", type: "main_frame", cookieStoreId: loan.cookieStoreId };
+    expect(await fb.request(late)).toBe(true);
+    // After a restart (a new browser stand-in with the same storage), the removed container is still blocked.
+    const fb2 = fakeBrowser({ stores: fb.data });
+    await createFoxlend({ browser: fb2.browser, host, now: () => NOW }).sweep();
+    expect(await fb2.request(late)).toBe(true);
+  });
 });
