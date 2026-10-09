@@ -5,7 +5,8 @@ export type FoxlendErrorCode =
   | "bad-url"
   | "bad-scope"
   | "lend-failed"
-  | "revoke-failed";
+  | "revoke-failed"
+  | "storage-error";
 
 /** Every error that foxlend throws on purpose. Read `code`, not the message. */
 export class FoxlendError extends Error {
