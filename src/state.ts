@@ -20,6 +20,8 @@ export interface Loan extends LoanState {
   createdAt: number;
   containerName: string;
   grantId?: string;
+  /** Set before addGrant, so the start sweep can find a grant that a crash left without a record (L14). */
+  grantRequested?: boolean;
   tabId?: number;
   hidden: boolean;
   /** The number of cookies copied into the loan container. */

@@ -29,7 +29,7 @@ export interface LendOptions {
 
 export interface LoanContext {
   browser: BrowserLike;
-  host: Pick<Host, "addGrant" | "revokeGrant">;
+  host: Pick<Host, "addGrant" | "revokeGrant" | "grants">;
   store: LoanStore;
   now: () => number;
   publicSuffix: PublicSuffix;
@@ -44,6 +44,11 @@ const SCOPES: readonly string[] = ["read", "fill", "submit", "pay"];
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const cookieUrl = (c: Cookie) => `${c.secure ? "https" : "http"}://${c.domain.replace(/^\./, "")}${c.path}`;
 const randomId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** Give network prediction back when no loan is left (E6, L15). */
+export async function givePredictionBack(ctx: LoanContext): Promise<void> {
+  if (ctx.stopPrediction && (await ctx.store.loans()).length === 0) await ctx.browser.privacy?.network.networkPredictionEnabled.clear({}).catch(() => false);
+}
 
 /** Close the loan tabs, clear and remove the container, and revoke the grant. */
 export async function teardown(ctx: LoanContext, loan: Pick<Loan, "cookieStoreId" | "grantId">): Promise<void> {
@@ -136,6 +141,7 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
           skipped.push({ name: details.name, domain: details.domain ?? new URL(details.url).hostname, reason: "set-failed", message: message(error) });
         }
       }
+      await put({ grantRequested: true });
       const grant = await ctx.host.addGrant({ scope: options.scope, domains: patterns, expiresAt: loan.expiresAt, ...(options.tools ? { tools: options.tools } : {}) });
       b.alarms.create(alarmName(loan.id), { when: loan.expiresAt });
       await put({ state: "active", grantId: grant.id, copied, skipped });
@@ -151,6 +157,7 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
       try {
         await teardown(ctx, loan);
         await ctx.store.save((await ctx.store.loans()).filter((l) => l.id !== loan.id));
+        await givePredictionBack(ctx);
       } catch {
         await put({ state: "revoking" }).catch(() => undefined);
       }
