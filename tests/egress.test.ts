@@ -8,6 +8,7 @@ const NOW = 1_800_000_000_000;
 const loan: LoanState = { id: "L1", cookieStoreId: "firefox-container-9", patterns: ["bank.test", "*.bank.test", "cdn.example.com"], expiresAt: NOW + 60_000, state: "active" };
 const ask = (url: string, over: Partial<LoanState> = {}, store = "firefox-container-9") =>
   judge({ url, type: "xmlhttprequest", cookieStoreId: store }, [{ ...loan, ...over }], NOW, ps);
+const blind = (store: string | undefined) => judge({ url: "https://www.bank.test/", type: "image", cookieStoreId: store }, undefined, NOW, ps);
 const reason = (verdict: ReturnType<typeof ask>) => (verdict.block ? verdict.reason : "pass");
 
 describe("egress allow list", () => {
@@ -58,7 +59,6 @@ describe("egress allow list", () => {
   });
 
   it("E13: with no loan list, blocks every container but the default and the private one", () => {
-    const blind = (store: string | undefined) => judge({ url: "https://www.bank.test/", type: "image", cookieStoreId: store }, undefined, NOW, ps);
     expect(blind("firefox-container-3")).toEqual({ block: true, loanId: "unknown", reason: "no-state", host: "www.bank.test" });
     expect(blind("firefox-default").block).toBe(false);
     expect(blind("firefox-private").block).toBe(false);
