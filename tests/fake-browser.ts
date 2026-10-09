@@ -25,7 +25,19 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
   let nextTab = 1;
   const on = { request: [] as Listener<[RequestDetails]>[], proxy: [] as Listener<[RequestDetails]>[], alarm: [] as Listener<[{ name: string }]>[], startup: [] as Listener[] };
   const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; containerGet?: () => void; tabsHide?: () => void; tabsCreate?: () => void; alarmsCreate?: () => void } = {};
-  const prediction: { value: boolean | undefined } = { value: undefined };
+  // A browser-wide setting. `level` and `setResult` copy what another extension or a policy can do (E18).
+  type Setting = { value: boolean | undefined; level: string; setResult: boolean };
+  const prediction: Setting = { value: undefined, level: "controllable_by_this_extension", setResult: true };
+  const webrtc: Setting = { value: undefined, level: "controllable_by_this_extension", setResult: true };
+  const setting = (s: Setting) => ({
+    get: async () => ({ value: s.value ?? true, levelOfControl: s.value === undefined ? s.level : "controlled_by_this_extension" }),
+    set: async (d: { value: boolean }) => {
+      if (!s.setResult || !/by_this_extension/.test(s.level)) return false;
+      s.value = d.value;
+      return true;
+    },
+    clear: async () => ((s.value = undefined), true),
+  });
   const jar = (storeId: string) => {
     if (!cookies.has(storeId)) cookies.set(storeId, []);
     return cookies.get(storeId)!;
@@ -159,10 +171,8 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
     proxy: { onRequest: { addListener: (fn) => void on.proxy.push(fn) } },
     privacy: {
       network: {
-        networkPredictionEnabled: {
-          set: async (d) => ((prediction.value = d.value), true),
-          clear: async () => ((prediction.value = undefined), true),
-        },
+        networkPredictionEnabled: setting(prediction),
+        peerConnectionEnabled: setting(webrtc),
       },
     },
     runtime: { onStartup: { addListener: (fn) => void on.startup.push(fn) } },
@@ -179,6 +189,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
     alarms,
     hooks,
     prediction,
+    webrtc,
     /** Send one request through every webRequest listener. */
     request: async (d: RequestDetails) => {
       const answers = await Promise.all(on.request.map((fn) => fn(d)));
