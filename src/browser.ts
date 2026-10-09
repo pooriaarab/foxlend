@@ -31,6 +31,16 @@ export interface ProxyInfo {
   proxyDNS?: boolean;
 }
 
+/** A browser-wide setting from `browser.privacy`. */
+export interface BrowserSetting {
+  get(details: object): Promise<{ value: unknown; levelOfControl: string }>;
+  set(details: { value: boolean }): Promise<boolean>;
+  clear(details: object): Promise<boolean>;
+}
+
+/** The browser-wide settings that foxlend turns off while a loan is active (E6, E17). */
+export type BrowserSettingName = "networkPredictionEnabled" | "peerConnectionEnabled";
+
 type Maybe<T> = T | undefined | Promise<T | undefined>;
 
 export interface BrowserLike {
@@ -60,7 +70,7 @@ export interface BrowserLike {
   };
   webRequest: { onBeforeRequest: BrowserEvent<(details: RequestDetails) => Maybe<{ cancel: boolean }>> };
   proxy?: { onRequest: BrowserEvent<(details: RequestDetails) => Maybe<ProxyInfo>> };
-  privacy?: { network: { networkPredictionEnabled: { set(details: { value: boolean }): Promise<boolean>; clear(details: object): Promise<boolean> } } };
+  privacy?: { network: Record<BrowserSettingName, BrowserSetting | undefined> };
   runtime: { onStartup: BrowserEvent<() => void> };
   publicSuffix?: PublicSuffixApi;
 }
