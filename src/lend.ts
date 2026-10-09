@@ -45,6 +45,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const cookieUrl = (c: Cookie) => `${c.secure ? "https" : "http"}://${c.domain.replace(/^\./, "")}${c.path}`;
 const randomId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
+/** True when the guard can see every request: the extension has access to all sites (E19). */
+export const hasHostAccess = (ctx: LoanContext) => ctx.browser.permissions.contains({ origins: ["<all_urls>"] }).catch(() => false);
+
 /** Give the browser-wide settings back when no loan is left (E6, E17, L15). */
 export async function releaseSettings(ctx: LoanContext): Promise<void> {
   if ((await ctx.store.loans()).length > 0) return;
@@ -114,6 +117,7 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
   }
 
   return ctx.store.serial(async () => {
+    if (!(await hasHostAccess(ctx))) throw new FoxlendError("no-host-access", "foxlend needs access to all sites, or the guard cannot see the loan's requests. Allow it in about:addons.");
     // DNS prefetch and WebRTC are outside both guard layers (E6, E17). Without them off, no loan (E18).
     try {
       await holdSettings(ctx);
