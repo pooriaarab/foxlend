@@ -24,7 +24,7 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
   let nextContainer = 1;
   let nextTab = 1;
   const on = { request: [] as Listener<[RequestDetails]>[], proxy: [] as Listener<[RequestDetails]>[], alarm: [] as Listener<[{ name: string }]>[], startup: [] as Listener[] };
-  const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; containerGet?: () => void; tabsHide?: () => void; tabsCreate?: () => void } = {};
+  const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; containerGet?: () => void; tabsHide?: () => void; tabsCreate?: () => void; alarmsCreate?: () => void } = {};
   const prediction: { value: boolean | undefined } = { value: undefined };
   const jar = (storeId: string) => {
     if (!cookies.has(storeId)) cookies.set(storeId, []);
@@ -140,7 +140,10 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
       },
     },
     alarms: {
-      create: (name, info) => void alarms.set(name, info.when),
+      create: (name, info) => {
+        hooks.alarmsCreate?.();
+        alarms.set(name, info.when);
+      },
       clear: async (name) => alarms.delete(name),
       onAlarm: { addListener: (fn) => void on.alarm.push(fn) },
     },

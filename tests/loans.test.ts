@@ -343,4 +343,14 @@ describe("revoke and sweep", () => {
     await lender.sweep();
     expect(fb.prediction.value).toBeUndefined();
   });
+
+  it("L16: a step that fails right after addGrant still revokes the grant", async () => {
+    const { fb, host, lender } = lending();
+    fb.hooks.alarmsCreate = () => {
+      throw new Error("alarms are broken");
+    };
+    expect(await errorCode(lender.lend(TASK))).toBe("lend-failed");
+    expect(await host.grants()).toEqual([]);
+    expect(fb.containers).toEqual([]);
+  });
 });
