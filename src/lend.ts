@@ -143,8 +143,10 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
       }
       await put({ grantRequested: true });
       const grant = await ctx.host.addGrant({ scope: options.scope, domains: patterns, expiresAt: loan.expiresAt, ...(options.tools ? { tools: options.tools } : {}) });
+      // Save the grant ID before any other step, so the undo can revoke it (L16).
+      await put({ grantId: grant.id });
       b.alarms.create(alarmName(loan.id), { when: loan.expiresAt });
-      await put({ state: "active", grantId: grant.id, copied, skipped });
+      await put({ state: "active", copied, skipped });
       // DNS prefetch is outside both guard layers (E6). A setting that another extension controls stays as it is.
       if (ctx.stopPrediction) await b.privacy?.network.networkPredictionEnabled.set({ value: false }).catch(() => false);
       const tab = await b.tabs.create({ url, cookieStoreId: container.cookieStoreId, active: !options.hidden });
