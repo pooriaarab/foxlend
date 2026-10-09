@@ -20,17 +20,18 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
   const cookies = new Map<string, Cookie[]>([["firefox-default", []]]);
   const containers: ContextualIdentity[] = [];
   const tabs: { id: number; cookieStoreId: string; url: string; hidden: boolean; active: boolean }[] = [];
+  const alarms = new Map<string, number>();
   let nextContainer = 1;
   let nextTab = 1;
-  const on = { request: [] as Listener<[RequestDetails]>[], proxy: [] as Listener<[RequestDetails]>[] };
+  const on = { request: [] as Listener<[RequestDetails]>[], proxy: [] as Listener<[RequestDetails]>[], alarm: [] as Listener<[{ name: string }]>[], startup: [] as Listener[] };
   const hooks: { storageGet?: () => void; storageSet?: () => void; tabsRemove?: () => void | Promise<void>; containerRemove?: () => void; tabsHide?: () => void } = {};
+  const prediction: { value: boolean | undefined } = { value: undefined };
   const jar = (storeId: string) => {
     if (!cookies.has(storeId)) cookies.set(storeId, []);
     return cookies.get(storeId)!;
   };
 
-  // The parts that the guard and lend call. The revoke tests add alarms and privacy.
-  const browser = {
+  const browser: BrowserLike = {
     storage: {
       local: {
         async get(key) {
@@ -136,6 +137,11 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
         calls.push(`browsingData.remove ${o.cookieStoreId}`);
       },
     },
+    alarms: {
+      create: (name, info) => void alarms.set(name, info.when),
+      clear: async (name) => alarms.delete(name),
+      onAlarm: { addListener: (fn) => void on.alarm.push(fn) },
+    },
     webRequest: {
       onBeforeRequest: {
         addListener(fn, filter, extra) {
@@ -146,8 +152,17 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
       },
     },
     proxy: { onRequest: { addListener: (fn) => void on.proxy.push(fn) } },
+    privacy: {
+      network: {
+        networkPredictionEnabled: {
+          set: async (d) => ((prediction.value = d.value), true),
+          clear: async () => ((prediction.value = undefined), true),
+        },
+      },
+    },
+    runtime: { onStartup: { addListener: (fn) => void on.startup.push(fn) } },
     publicSuffix: psl,
-  } as BrowserLike;
+  };
 
   return {
     browser,
@@ -156,12 +171,16 @@ export function fakeBrowser(options: { stores?: Record<string, unknown> } = {}) 
     cookies,
     containers,
     tabs,
+    alarms,
     hooks,
+    prediction,
     /** Send one request through every webRequest listener. */
     request: async (d: RequestDetails) => {
       const answers = await Promise.all(on.request.map((fn) => fn(d)));
       return answers.some((a) => (a as { cancel?: boolean } | undefined)?.cancel === true);
     },
     proxy: async (d: RequestDetails) => (await Promise.all(on.proxy.map((fn) => fn(d))))[0] as ProxyInfo | undefined,
+    fireAlarm: async (name: string) => on.alarm.forEach((fn) => fn({ name })),
+    startup: async () => on.startup.forEach((fn) => fn()),
   };
 }

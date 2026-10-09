@@ -3,7 +3,7 @@
 // that each failure mode names. e2e/run.mjs checks the same in Firefox.
 import { createFoxgate } from "foxgate";
 import { describe, expect, it } from "vitest";
-import { createFoxlend, DEAD_PROXY, FoxlendError, withDefaultRule, type BlockedRequest, type Cookie } from "../src/index.js";
+import { createFoxlend, DEAD_PROXY, FoxlendError, withDefaultRule, type BlockedRequest, type Cookie, type RevokedEvent } from "../src/index.js";
 import { fakeBrowser } from "./fake-browser.js";
 import { psl } from "./psl.js";
 
@@ -16,8 +16,10 @@ function setup(stores?: Record<string, unknown>, fb = fakeBrowser({ stores })) {
   const { host } = createFoxgate({ tools: { open_page: "read", submit_form: "submit" }, publicSuffix: ps, now: () => clock.now });
   const lender = createFoxlend({ browser: fb.browser, host, now: () => clock.now });
   const blocked: BlockedRequest[] = [];
+  const revoked: RevokedEvent[] = [];
   lender.onBlocked.addListener((e) => blocked.push(e));
-  return { fb, host, lender, blocked, clock };
+  lender.onRevoked.addListener((e) => revoked.push(e));
+  return { fb, host, lender, blocked, revoked, clock };
 }
 
 const errorCode = async (promise: Promise<unknown>) =>
@@ -176,5 +178,112 @@ describe("lend", () => {
     const shown = await lender.lend({ ...TASK, hidden: true });
     expect(shown).toMatchObject({ state: "active", hidden: false });
     expect(fb.tabs.find((t) => t.id === shown.tabId)).toMatchObject({ hidden: false });
+  });
+});
+
+describe("revoke and sweep", () => {
+  it("revokes: tabs first, then data, then the container, then the grant (L5, L6, L9, K10)", async () => {
+    const { fb, host, lender, revoked } = lending();
+    const loan = await lender.lend(TASK);
+    await fb.browser.tabs.create({ url: "http://www.bank.test/2", cookieStoreId: loan.cookieStoreId!, active: false });
+    expect(await lender.revoke(loan)).toBe(true);
+    const order = fb.calls.filter((c) => /tabs.remove|browsingData|container.remove/.test(c)).map((c) => c.split(" ")[0]);
+    expect(order).toEqual(["tabs.remove", "browsingData.remove", "container.remove"]);
+    expect(fb.tabs).toEqual([]);
+    expect(fb.containers).toEqual([]);
+    expect(fb.cookies.has(loan.cookieStoreId!)).toBe(false);
+    expect(await host.grants()).toEqual([]);
+    expect(fb.alarms.has(`foxlend:${loan.id}`)).toBe(false);
+    expect(await lender.listLoans()).toEqual([]);
+    expect(fb.cookies.get("firefox-default")).toEqual(USER_COOKIES);
+    expect(revoked).toMatchObject([{ reason: "user", loan: { id: loan.id, state: "revoking" } }]);
+  });
+
+  it("L8: a second revoke, or an unknown ID, does nothing", async () => {
+    const { lender } = lending();
+    const loan = await lender.lend(TASK);
+    expect(await lender.revoke(loan.id)).toBe(true);
+    expect(await lender.revoke(loan.id)).toBe(false);
+    expect(await lender.revoke("nope")).toBe(false);
+  });
+
+  it("L1: revoking one of two loans for a site leaves the other", async () => {
+    const { fb, host, lender } = lending();
+    const a = await lender.lend(TASK);
+    const b = await lender.lend(TASK);
+    await lender.revoke(a);
+    expect(fb.containers.map((c) => c.cookieStoreId)).toEqual([b.cookieStoreId]);
+    expect(fb.cookies.get(b.cookieStoreId!)).toHaveLength(2);
+    expect((await host.grants()).map((g) => g.id)).toEqual([b.grantId]);
+    expect(await fb.request({ url: "http://www.bank.test/", type: "main_frame", cookieStoreId: b.cookieStoreId })).toBe(false);
+  });
+
+  it("E11: blocks requests from the container while the revoke runs", async () => {
+    const { fb, lender, blocked } = lending();
+    const loan = await lender.lend(TASK);
+    let during: boolean | undefined;
+    fb.hooks.tabsRemove = async () => {
+      during = await fb.request({ url: "http://www.bank.test/send", type: "xmlhttprequest", cookieStoreId: loan.cookieStoreId });
+    };
+    await lender.revoke(loan);
+    expect(during).toBe(true);
+    expect(blocked.at(-1)).toMatchObject({ reason: "revoking", loanId: loan.id });
+  });
+
+  it("L7: a failed revoke keeps the loan blocked, and the next sweep finishes it", async () => {
+    const { fb, lender, revoked } = lending();
+    const loan = await lender.lend(TASK);
+    fb.hooks.containerRemove = () => {
+      throw new Error("busy");
+    };
+    expect(await errorCode(lender.revoke(loan))).toBe("revoke-failed");
+    expect((await lender.listLoans()).map((l) => l.state)).toEqual(["revoking"]);
+    expect(await fb.request({ url: "http://www.bank.test/", type: "main_frame", cookieStoreId: loan.cookieStoreId })).toBe(true);
+    delete fb.hooks.containerRemove;
+    await lender.sweep();
+    expect(await lender.listLoans()).toEqual([]);
+    expect(fb.containers).toEqual([]);
+    expect(revoked.map((r) => r.reason)).toEqual(["startup"]);
+  });
+
+  it("L4: revokes at the alarm, and at start when the alarm did not run", async () => {
+    const { fb, lender, revoked, clock } = lending();
+    const first = await lender.lend(TASK);
+    expect(fb.alarms.get(`foxlend:${first.id}`)).toBe(first.expiresAt);
+    await fb.fireAlarm(`foxlend:${first.id}`);
+    await lender.sweep();
+    expect(revoked.map((r) => [r.loan.id, r.reason])).toEqual([[first.id, "ttl"]]);
+    const second = await lender.lend(TASK);
+    clock.now += 61_000;
+    const restarted = setup(undefined, fb);
+    restarted.clock.now = clock.now;
+    await restarted.lender.sweep();
+    expect(await restarted.lender.listLoans()).toEqual([]);
+    expect(fb.containers).toEqual([]);
+    expect(revoked.length + restarted.revoked.length).toBe(2);
+    expect([...revoked, ...restarted.revoked].map((r) => r.loan.id)).toContain(second.id);
+  });
+
+  it("L2: at start, removes a container from a lend that never finished and foxlend containers that no loan holds", async () => {
+    const fb = fakeBrowser();
+    const stale = await fb.browser.contextualIdentities.create({ name: "Agent · bank.test", color: "purple", icon: "fingerprint" });
+    await fb.browser.contextualIdentities.create({ name: "Agent · old.test", color: "purple", icon: "fingerprint" });
+    const mine = await fb.browser.contextualIdentities.create({ name: "Agent · mine", color: "blue", icon: "circle" });
+    fb.data.foxlend = { loans: [{ id: "L0", cookieStoreId: stale.cookieStoreId, patterns: ["bank.test"], expiresAt: NOW + 60_000, state: "creating", domain: "bank.test" }] };
+    const { lender } = setup(undefined, fb);
+    await lender.sweep();
+    expect(fb.containers.map((c) => c.cookieStoreId)).toEqual([mine.cookieStoreId]);
+    expect(await lender.listLoans()).toEqual([]);
+  });
+
+  it("E6: turns network prediction off while a loan is active, and gives it back after the last one", async () => {
+    const { fb, lender } = lending();
+    const a = await lender.lend(TASK);
+    const b = await lender.lend(TASK);
+    expect(fb.prediction.value).toBe(false);
+    await lender.revoke(a);
+    expect(fb.prediction.value).toBe(false);
+    await lender.revoke(b);
+    expect(fb.prediction.value).toBeUndefined();
   });
 });
