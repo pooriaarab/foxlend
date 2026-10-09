@@ -7,7 +7,8 @@ export type FoxlendErrorCode =
   | "lend-failed"
   | "revoke-failed"
   | "storage-error"
-  | "setting-failed";
+  | "setting-failed"
+  | "no-host-access";
 
 /** Every error that foxlend throws on purpose. Read `code`, not the message. */
 export class FoxlendError extends Error {

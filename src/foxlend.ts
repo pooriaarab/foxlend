@@ -68,6 +68,7 @@ export function createFoxlend(options: FoxlendOptions): Foxlend {
   browser.alarms.onAlarm.addListener(({ name }) => {
     if (name.startsWith("foxlend:")) revoke(name.slice("foxlend:".length), "ttl").catch(() => undefined);
   });
+  browser.permissions.onRemoved.addListener(() => void sweep().catch(() => undefined));
   browser.runtime.onStartup.addListener(() => void sweep().catch(() => undefined));
   sweep().catch(() => undefined);
   return Object.freeze({

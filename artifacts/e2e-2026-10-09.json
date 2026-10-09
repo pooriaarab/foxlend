@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-09T07:37:28.070Z",
+  "startedAt": "2026-10-09T07:41:06.047Z",
   "firefox": "firefox/157.0.1",
   "passed": true,
   "checks": [
@@ -10,14 +10,14 @@
     {"name":"X2: the loan container exists","expected":{"name":"Agent · bank.localhost","color":"purple","icon":"fingerprint"},"actual":{"name":"Agent · bank.localhost","color":"purple","icon":"fingerprint"},"ok":true},
     {"name":"X2: the loan tab is signed in","expected":"sam","actual":"sam","ok":true},
     {"name":"X3, X4: only the bank's cookies and its widget cookie are copied","expected":["session","theme","widget"],"actual":["session","theme","widget"],"ok":true},
-    {"name":"X3: the session keeps HttpOnly, SameSite, and host-only","expected":{"httpOnly":true,"sameSite":"lax","hostOnly":true,"value":"14412ef6cf13234091582e00"},"actual":{"httpOnly":true,"sameSite":"lax","hostOnly":true,"value":"14412ef6cf13234091582e00"},"ok":true},
+    {"name":"X3: the session keeps HttpOnly, SameSite, and host-only","expected":{"httpOnly":true,"sameSite":"lax","hostOnly":true,"value":"412186fc7e628a4bf8f4c7a9"},"actual":{"httpOnly":true,"sameSite":"lax","hostOnly":true,"value":"412186fc7e628a4bf8f4c7a9"},"ok":true},
     {"name":"X3: every copy expires by the loan end","expected":true,"actual":true,"ok":true},
     {"name":"X4: the widget cookie stays in the bank partition","expected":"http://bank.localhost","actual":"http://bank.localhost","ok":true},
     {"name":"X5: webRequest blocks every way out","expected":["/beacon","/fetch","/frame","/from-sw","/img","/via-redirect","/ws"],"actual":["/beacon","/fetch","/frame","/from-sw","/img","/via-redirect","/ws"],"ok":true},
     {"name":"X5: the request types blocked","expected":["beacon","image","sub_frame","websocket","xmlhttprequest"],"actual":["beacon","image","sub_frame","websocket","xmlhttprequest"],"ok":true},
     {"name":"X5: the proxy layer stops the preconnect, which webRequest cannot see","expected":["speculative"],"actual":["speculative"],"ok":true},
     {"name":"X5: each block names the loan and the reason","expected":true,"actual":true,"ok":true},
-    {"name":"X5: a block names the page that sent it","expected":"http://www.bank.localhost:63224/inbox","actual":"http://www.bank.localhost:63224/inbox","ok":true},
+    {"name":"X5: a block names the page that sent it","expected":"http://www.bank.localhost:64073/inbox","actual":"http://www.bank.localhost:64073/inbox","ok":true},
     {"name":"X5: the attacker got no request","expected":[],"actual":[],"ok":true},
     {"name":"X5: the attacker got no connection","expected":0,"actual":0,"ok":true},
     {"name":"X9: while the loan is active, the loan page's WebRTC try sends no packet","expected":[true,1],"actual":[true,1],"ok":true},
@@ -40,6 +40,9 @@
     {"name":"X9: after the revoke, WebRTC works again in your own tab","expected":true,"actual":true,"ok":true},
     {"name":"X8: the short loan tab is hidden","expected":true,"actual":true,"ok":true},
     {"name":"X8: the alarm revoked the short loan","expected":[],"actual":[],"ok":true},
-    {"name":"X8: its container is gone","expected":false,"actual":false,"ok":true}
+    {"name":"X8: its container is gone","expected":false,"actual":false,"ok":true},
+    {"name":"X10: Firefox removes the access to all sites","expected":true,"actual":true,"ok":true},
+    {"name":"X10: the loan is revoked when the access is gone","expected":false,"actual":false,"ok":true},
+    {"name":"X10: a new lend is refused without the access","expected":"no-host-access","actual":"no-host-access","ok":true}
   ]
 }
