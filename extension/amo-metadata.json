@@ -1,0 +1,18 @@
+{
+  "default_locale": "en-US",
+  "slug": "foxlend",
+  "name": { "en-US": "foxlend — lend one login to an AI agent" },
+  "summary": {
+    "en-US": "Lend the login of one site to an AI agent in its own container, with a scope, a time limit and an allow list. Pages in the container reach only the hosts you allow. Revoke the loan, and the container and its cookies are gone."
+  },
+  "description": {
+    "en-US": "An AI agent in your browser can use every site that you are logged in to. foxlend gives it one.\n\n**Who it is for:** people and developers who run an AI agent in Firefox and want to limit what it can reach.\n\n**What it does**\n\n- Makes a new container named \"Agent · <site>\", copies the cookies of one site into it, and opens the agent's tab there. Your own tabs stay logged in.\n- Blocks each request from that container to a host that is not the lent site or on your allow list, and shows a live log of blocked requests.\n- Sets a scope (read, fill, submit or pay) and a time limit for each loan. A foxgate grant with the same scope covers the same hosts.\n- When you revoke the loan, or when its time is up, closes the agent's tabs and removes the container with its cookies and site data.\n- Can hide the agent's tab, if you tick \"Hide the agent tab\".\n\n**A change to Firefox settings while a loan is active:** foxlend turns off WebRTC and network prediction for all of Firefox, so a page in the container cannot send data around the block. This also affects your own tabs: no page can start a WebRTC call, for example a video call, until the last loan ends. foxlend turns the settings back when the last loan ends. This happens only when you lend a login.\n\n**What leaves your computer:** nothing. foxlend has no server and makes no network requests of its own. Loans and the blocked log stay in this browser.\n\n**Permissions**\n\n- Containers, cookies, tabs and hidden tabs: make the loan container, copy one site's cookies into it, and open, hide and close the agent's tabs.\n- Access to all websites, web requests and proxy: block requests from the loan container to hosts outside the loan. foxlend cancels a blocked request, or sends it to a local proxy address where nothing listens (127.0.0.1, port 9).\n- Privacy: turn off WebRTC and network prediction while a loan is active.\n- Browsing data: remove the container's site data on revoke.\n- Public suffix list: find the site of a host.\n- Storage and alarms: keep the loans and end each one when its time is up.\n\nThe source code is MIT licensed."
+  },
+  "categories": { "firefox": ["privacy-security"] },
+  "homepage": { "en-US": "https://github.com/pooriaarab/foxlend" },
+  "support_url": { "en-US": "https://github.com/pooriaarab/foxlend/issues" },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "The uploaded source.zip is the git tree of this release. To build: install Node 24 and pnpm 11 (corepack enable), run `pnpm install --frozen-lockfile`, then `pnpm build:ext`. The output is dist-ext/. esbuild bundles extension/*.js with src/ and the foxgate npm package; the other files are copied unmodified. To try it: log in to any site in a normal tab, open the foxlend sidebar on that tab, and click Lend login. A purple \"Agent · <site>\" container tab opens logged in. Requests from it to other hosts show under Blocked requests. Click Revoke to close the tab and remove the container. No account is needed."
+  }
+}
