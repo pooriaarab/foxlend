@@ -387,4 +387,32 @@ describe("revoke and sweep", () => {
     const risky = createFoxlend({ browser: fb.browser, host, now: () => NOW, stopPrediction: false, stopWebRtc: false });
     expect((await risky.lend(TASK)).state).toBe("active");
   });
+
+  it("E19: refuses the lend without access to all sites", async () => {
+    const { fb, lender } = lending();
+    fb.access.all = false;
+    expect(await errorCode(lender.lend(TASK))).toBe("no-host-access");
+    expect(fb.containers).toEqual([]);
+    expect(fb.webrtc.value).toBeUndefined();
+  });
+
+  it("E19: revokes every loan when the user removes the access", async () => {
+    const { fb, lender, revoked } = lending();
+    await lender.lend(TASK);
+    await lender.lend(TASK);
+    await fb.removeHostAccess();
+    await lender.sweep();
+    expect(await lender.listLoans()).toEqual([]);
+    expect(fb.containers).toEqual([]);
+    expect(revoked.map((r) => r.reason)).toEqual(["permission", "permission"]);
+  });
+
+  it("E19: at start, revokes every loan when the access is gone", async () => {
+    const { fb, lender, revoked } = lending();
+    await lender.lend(TASK);
+    fb.access.all = false;
+    await lender.sweep();
+    expect(await lender.listLoans()).toEqual([]);
+    expect(revoked.map((r) => r.reason)).toEqual(["permission"]);
+  });
 });

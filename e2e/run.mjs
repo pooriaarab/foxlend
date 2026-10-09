@@ -182,6 +182,14 @@ try {
   await sleep(6000);
   check("X8: the alarm revoked the short loan", [], await send({ type: "loans" }));
   check("X8: its container is gone", false, (await ext.evaluate(() => browser.contextualIdentities.query({}))).some((c) => c.cookieStoreId === short.cookieStoreId));
+
+  // X10: the user removes access to all sites in about:addons.
+  const last = await send({ type: "lend", options: { domain: "www.bank.localhost", scope: "read", ttlMs: 60_000, url: `${BANK}/` } });
+  check("X10: Firefox removes the access to all sites", true, await ext.evaluate(() => browser.permissions.remove({ origins: ["<all_urls>"] })));
+  await poll(ext, () => browser.runtime.sendMessage({ type: "loans" }).then((a) => a.result?.length === 0));
+  check("X10: the loan is revoked when the access is gone", false, (await ext.evaluate(() => browser.contextualIdentities.query({}))).some((c) => c.cookieStoreId === last.cookieStoreId));
+  const refused = await ext.evaluate(() => browser.runtime.sendMessage({ type: "lend", options: { domain: "www.bank.localhost", scope: "read", ttlMs: 60_000 } }));
+  check("X10: a new lend is refused without the access", "no-host-access", refused.error);
 } catch (error) {
   record.error = error instanceof Error ? error.message : String(error);
 } finally {
