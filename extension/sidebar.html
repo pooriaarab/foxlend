@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>foxlend</title>
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body>
+    <h1>foxlend</h1>
+    <p class="lede">Lend one login to an AI agent, and take it back.</p>
+    <section>
+      <h2>Lend a login</h2>
+      <form id="lend-form">
+        <label>Site <input id="domain" required placeholder="www.example.com" /></label>
+        <label>Start page <input id="url" placeholder="https://www.example.com/" /></label>
+        <div class="row">
+          <label>Scope
+            <select id="scope">
+              <option value="read">read</option>
+              <option value="fill">fill</option>
+              <option value="submit">submit</option>
+              <option value="pay">pay</option>
+            </select>
+          </label>
+          <label>Time limit
+            <select id="ttl">
+              <option value="300000">5 minutes</option>
+              <option value="900000" selected>15 minutes</option>
+              <option value="3600000">1 hour</option>
+            </select>
+          </label>
+        </div>
+        <label>Also allow <input id="allow" placeholder="cdn.example.com, *.example.net" /></label>
+        <label class="check"><input type="checkbox" id="hidden" /> Hide the agent tab</label>
+        <button type="submit" id="lend-button">Lend login</button>
+        <output id="lend-result"></output>
+      </form>
+    </section>
+    <section>
+      <h2>Active loans</h2>
+      <ul id="loans"></ul>
+      <p id="no-loans" class="muted">No active loans.</p>
+    </section>
+    <section>
+      <h2>Blocked requests</h2>
+      <ol id="blocked"></ol>
+      <p id="no-blocked" class="muted">Nothing blocked yet.</p>
+    </section>
+    <script src="sidebar.js"></script>
+  </body>
+</html>

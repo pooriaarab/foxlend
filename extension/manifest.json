@@ -36,8 +36,9 @@
       "background.js"
     ]
   },
-  "action": {
-    "default_title": "foxlend demo",
-    "default_popup": "popup.html"
+  "sidebar_action": {
+    "default_title": "foxlend",
+    "default_panel": "sidebar.html",
+    "open_at_install": true
   }
 }

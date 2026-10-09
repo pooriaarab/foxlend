@@ -2,9 +2,10 @@
 // demo extension (dist-ext/), serves the local sites in e2e/sites.mjs, and
 // writes artifacts/e2e-<date>.json. It checks X1-X8 in docs/failure-modes.md.
 // Usage: pnpm e2e [--headed] [--screenshots <dir>]. Env: FIREFOX (the Firefox binary).
-import { writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launch, writeArtifact } from "create-foxkit/e2e";
+import { launch, poll, serve } from "create-foxkit/e2e";
 import { startSites } from "./sites.mjs";
 
 const shotsAt = process.argv.indexOf("--screenshots");
@@ -35,7 +36,7 @@ try {
     },
   });
   record.firefox = await fox.browser.version();
-  const ext = await fox.openExtensionPage("popup.html");
+  const ext = await fox.openExtensionPage("sidebar.html");
   const send = async (message) => {
     const answer = await ext.evaluate((m) => browser.runtime.sendMessage(m), message);
     if (answer?.error) throw new Error(`${message.type}: ${answer.error}: ${answer.message}`);
@@ -58,8 +59,14 @@ try {
   check("X1: your cookies before the loan", ["evil", "framed", "session", "theme", "widget"], before.map((c) => c.name));
   await shot(user, "your-tab-before.png");
 
-  // X2: lend the bank to the agent.
-  const loan = await send({ type: "lend", options: { domain: "www.bank.localhost", scope: "read", ttlMs: 15 * 60_000, url: `${BANK}/inbox`, allow: ["widget.test"] } });
+  // X2: lend the bank to the agent, with the sidebar form.
+  await ext.evaluate((values) => {
+    for (const [id, value] of Object.entries(values)) document.getElementById(id).value = value;
+    document.getElementById("lend-button").click();
+  }, { domain: "www.bank.localhost", url: `${BANK}/inbox`, scope: "read", ttl: "900000", allow: "widget.test" });
+  await poll(ext, () => document.querySelectorAll("#loans li").length === 1);
+  const [loan] = await send({ type: "loans" });
+  check("X2: the sidebar lists the loan", "Agent · bank.localhost", await ext.evaluate(() => document.querySelector("#loans li .name").textContent));
   const containers = await ext.evaluate(() => browser.contextualIdentities.query({}));
   check("X2: the loan container exists", { name: "Agent · bank.localhost", color: "purple", icon: "fingerprint" }, (({ name, color, icon }) => ({ name, color, icon }))(containers.find((c) => c.cookieStoreId === loan.cookieStoreId) ?? {}));
   // Puppeteer does not see tabs in a container made after it started, so
@@ -72,6 +79,23 @@ try {
     if (!shots) return;
     const url = await ext.evaluate((id) => browser.tabs.captureTab(id), tabId);
     writeFileSync(join(shots, file), Buffer.from(url.split(",")[1], "base64"));
+  };
+  // BiDi cannot take a screenshot of a moz-extension: page. Serve the same
+  // sidebar over http with a stub browser object and the real loan data.
+  const shotSidebar = async (demo) => {
+    const dir = mkdtempSync(join(tmpdir(), "foxlend-preview-"));
+    cpSync("dist-ext", dir, { recursive: true });
+    cpSync("e2e/stub.js", join(dir, "stub.js"));
+    const data = `<script>window.foxlendDemo = ${JSON.stringify(demo).replaceAll("<", "\\u003c")};</script><script src="stub.js"></script>`;
+    writeFileSync(join(dir, "preview.html"), readFileSync(join(dir, "sidebar.html"), "utf8").replace('<script src="sidebar.js">', `${data}<script src="sidebar.js">`));
+    const preview = await serve(dir);
+    const page = await fox.open(`${preview.url}/preview.html`);
+    await page.setViewport({ width: 380, height: 1000 });
+    await poll(page, () => document.body.dataset.ready === "1");
+    await page.screenshot({ path: join(shots, "sidebar.png") });
+    await page.close();
+    await preview.close();
+    rmSync(dir, { recursive: true, force: true });
   };
   await until("the loan tab", () => log.bank.some((r) => r.path === "/inbox"));
   check("X2: the loan tab is signed in", "sam", log.bank.find((r) => r.path === "/inbox").user);
@@ -122,7 +146,11 @@ try {
   check("X6: your own tab can reach attacker.test", true, log.attacker.some((r) => r.path === "/from-your-tab"));
 
   // X7: take the login back.
-  check("X7: revoke answers true", true, await send({ type: "revoke", id: loan.id }));
+  check("X5: the sidebar log shows the blocked requests", true, await ext.evaluate(() => document.querySelectorAll("#blocked li").length >= 8));
+  if (shots) await shotSidebar({ loans: await send({ type: "loans" }), blocked: await send({ type: "blocked" }), tab: { url: `${BANK}/` } });
+  await ext.evaluate(() => document.querySelector("#loans li .revoke").click());
+  await poll(ext, () => document.querySelectorAll("#loans li").length === 0 && !document.getElementById("no-loans").hidden);
+  check("X7: the sidebar shows no loan after Revoke", "No active loans.", await ext.evaluate(() => document.getElementById("no-loans").textContent));
   const left = await ext.evaluate(() => browser.contextualIdentities.query({}));
   check("X7: the loan container is gone", false, left.some((c) => c.cookieStoreId === loan.cookieStoreId));
   check("X7: the loan tab is closed", [], await ext.evaluate((id) => browser.tabs.query({ cookieStoreId: id }).then((t) => t.map((x) => x.id)), loan.cookieStoreId));
@@ -147,7 +175,11 @@ try {
   await sites.close();
 }
 record.passed = !record.error && record.checks.length >= 24 && record.checks.every((c) => c.ok);
-const path = writeArtifact("artifacts", "e2e", record);
+// One check per line, so the diff of two runs shows each check that changed.
+const { checks, ...head } = record;
+const path = `artifacts/e2e-${new Date().toISOString().slice(0, 10)}.json`;
+mkdirSync("artifacts", { recursive: true });
+writeFileSync(path, `${JSON.stringify(head, null, 2).slice(0, -2)},\n  "checks": [\n${checks.map((c) => `    ${JSON.stringify(c)}`).join(",\n")}\n  ]\n}\n`);
 for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}: ${JSON.stringify(c.actual)}`);
 console.log(`${record.passed ? "PASS" : "FAIL"} (${record.checks.length} checks)${record.error ? `: ${record.error}` : ""} | ${path}`);
 process.exitCode = record.passed ? 0 : 1;
