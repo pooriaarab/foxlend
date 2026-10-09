@@ -70,3 +70,12 @@ describe("egress allow list", () => {
     expect(reason(ask("http://attacker.test/", {}, "firefox-container-2"))).toBe("pass");
   });
 });
+
+describe("egress allow list after review", () => {
+  it("E16: a stored pattern that no longer parses matches nothing, and the other patterns still work", () => {
+    const broken = { patterns: ["*.github.io", "bank.test"] };
+    expect(reason(ask("http://attacker.test/", broken))).toBe("not-allowed");
+    expect(reason(ask("http://alice.github.io/", broken))).toBe("not-allowed");
+    expect(reason(ask("http://bank.test/", broken))).toBe("pass");
+  });
+});

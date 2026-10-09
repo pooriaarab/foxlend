@@ -286,4 +286,22 @@ describe("revoke and sweep", () => {
     await lender.revoke(b);
     expect(fb.prediction.value).toBeUndefined();
   });
+
+  it("E16: a damaged loan record blocks the request instead of letting it pass", async () => {
+    const { fb, blocked } = setup({ foxlend: { loans: [{ id: "L9", cookieStoreId: STORE, expiresAt: NOW + 60_000, state: "active" }] } });
+    expect(await fb.request({ url: "http://attacker.test/", type: "image", cookieStoreId: STORE })).toBe(true);
+    expect(await fb.proxy({ url: "http://attacker.test/", type: "speculative", cookieStoreId: STORE })).toEqual(DEAD_PROXY);
+    expect(blocked[0]).toMatchObject({ reason: "error", url: "http://attacker.test/" });
+  });
+
+  it("L13: a get error that is not 'not found' keeps the loan revoking", async () => {
+    const { fb, lender } = lending();
+    const loan = await lender.lend(TASK);
+    fb.hooks.containerGet = () => {
+      throw new Error("NS_ERROR_FAILURE");
+    };
+    expect(await errorCode(lender.revoke(loan))).toBe("revoke-failed");
+    expect((await lender.listLoans()).map((l) => l.state)).toEqual(["revoking"]);
+    expect(fb.containers).toHaveLength(1);
+  });
 });
