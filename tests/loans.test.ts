@@ -353,4 +353,38 @@ describe("revoke and sweep", () => {
     expect(await host.grants()).toEqual([]);
     expect(fb.containers).toEqual([]);
   });
+
+  it("E17: turns WebRTC off while a loan is active, and gives it back after the last one", async () => {
+    const { fb, lender } = lending();
+    const a = await lender.lend(TASK);
+    expect(fb.webrtc.value).toBe(false);
+    await lender.revoke(a);
+    expect(fb.webrtc.value).toBeUndefined();
+  });
+
+  it("E18: refuses the lend when another extension controls a setting, and changes nothing", async () => {
+    for (const which of ["prediction", "webrtc"] as const) {
+      const { fb, host, lender } = lending();
+      fb[which].level = "controlled_by_other_extensions";
+      expect(await errorCode(lender.lend(TASK)), which).toBe("setting-failed");
+      expect(fb.containers).toEqual([]);
+      expect(await host.grants()).toEqual([]);
+      expect([fb.prediction.value, fb.webrtc.value]).toEqual([undefined, undefined]);
+    }
+  });
+
+  it("E18: refuses the lend when set answers false", async () => {
+    const { fb, lender } = lending();
+    fb.webrtc.setResult = false;
+    expect(await errorCode(lender.lend(TASK))).toBe("setting-failed");
+    expect(fb.prediction.value).toBeUndefined();
+  });
+
+  it("E18: refuses the lend without the privacy API, unless the caller accepts the risk", async () => {
+    const { fb, host } = lending();
+    delete (fb.browser as { privacy?: unknown }).privacy;
+    expect(await errorCode(createFoxlend({ browser: fb.browser, host, now: () => NOW }).lend(TASK))).toBe("setting-failed");
+    const risky = createFoxlend({ browser: fb.browser, host, now: () => NOW, stopPrediction: false, stopWebRtc: false });
+    expect((await risky.lend(TASK)).state).toBe("active");
+  });
 });
