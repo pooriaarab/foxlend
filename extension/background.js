@@ -21,7 +21,7 @@ lender.onBlocked.addListener((event) => {
     const { blocked = [] } = await browser.storage.session.get("blocked");
     await browser.storage.session.set({ blocked: [event, ...blocked].slice(0, 50) });
     tell();
-  });
+  }).catch(() => undefined); // One failed write must not stop the log.
 });
 lender.onRevoked.addListener(tell);
 

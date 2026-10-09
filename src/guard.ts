@@ -6,7 +6,7 @@
 //    (<link rel="preconnect">), which webRequest never sees.
 import type { PublicSuffix } from "foxgate";
 import type { BrowserLike, ProxyInfo, RequestDetails } from "./browser.js";
-import { judge, type BlockReason } from "./egress.js";
+import { judge, type BlockReason, type Verdict } from "./egress.js";
 import type { LoanStore } from "./state.js";
 
 /** A request that the guard stopped. */
@@ -38,7 +38,13 @@ export interface GuardOptions {
 
 export function attachGuard({ browser, store, now, publicSuffix, proxyLayer, onBlocked }: GuardOptions): void {
   const decide = (details: RequestDetails, loans: Parameters<typeof judge>[1], layer: BlockedRequest["layer"]) => {
-    const verdict = judge(details, loans, now(), publicSuffix);
+    // Firefox lets a request pass when a blocking listener throws, so an error blocks (E16).
+    let verdict: Verdict;
+    try {
+      verdict = judge(details, loans, now(), publicSuffix);
+    } catch {
+      verdict = { block: true, loanId: "unknown", reason: "error" };
+    }
     if (!verdict.block) return false;
     // webRequest reports what it blocks. The proxy layer reports only what webRequest cannot see.
     if (layer === "webRequest" || details.type === "speculative") {

@@ -57,7 +57,14 @@ export async function teardown(ctx: LoanContext, loan: Pick<Loan, "cookieStoreId
       if (round === 5) throw new Error(`Tabs stay open in ${id}.`);
       await b.tabs.remove(open);
     }
-    const exists = await b.contextualIdentities.get(id).then(() => true, () => false);
+    // Only "not found" means gone. Any other error keeps the loan revoking (L13).
+    const exists = await b.contextualIdentities.get(id).then(
+      () => true,
+      (error: unknown) => {
+        if (/Invalid contextual identity/.test(message(error))) return false;
+        throw error;
+      },
+    );
     if (exists) {
       // Firefox refuses serviceWorkers with cookieStoreId and then clears nothing (L6).
       await b.browsingData.remove({ cookieStoreId: id }, { cookies: true, localStorage: true, indexedDB: true });
