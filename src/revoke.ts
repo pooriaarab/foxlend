@@ -1,7 +1,7 @@
 // Take a login back (docs/failure-modes.md L1, L4-L9, E6, E11), and the
 // sweep that runs when foxlend starts (L2, L4).
 import type { Loan } from "./state.js";
-import { alarmName, CONTAINER, givePredictionBack, teardown, type LoanContext } from "./lend.js";
+import { alarmName, CONTAINER, releaseSettings, teardown, type LoanContext } from "./lend.js";
 import { FoxlendError } from "./errors.js";
 
 /** Why a loan ended. "startup": a loan that never became active, or a revoke that failed before. */
@@ -38,7 +38,7 @@ export async function revokeNow(ctx: LoanContext, id: string, reason: RevokedEve
     throw new FoxlendError("revoke-failed", `The loan for ${loan.domain} is not fully revoked: ${message(error)}. Its requests stay blocked, and the next start tries again.`, { cause: error });
   }
   await ctx.store.save((await ctx.store.loans()).filter((l) => l.id !== id));
-  await givePredictionBack(ctx);
+  await releaseSettings(ctx);
   emit({ loan, reason });
   return true;
 }
@@ -63,5 +63,5 @@ export async function sweepNow(ctx: LoanContext, emit: (event: RevokedEvent) => 
     const ours = c.name.startsWith(CONTAINER.prefix) && c.color === CONTAINER.color && c.icon === CONTAINER.icon;
     if (ours && !held.has(c.cookieStoreId)) await teardown(ctx, { cookieStoreId: c.cookieStoreId }).catch(() => undefined);
   }
-  await givePredictionBack(ctx);
+  await releaseSettings(ctx);
 }

@@ -13,6 +13,10 @@ const shots = shotsAt > 0 ? process.argv[shotsAt + 1] : undefined;
 const record = { startedAt: new Date().toISOString(), checks: [] };
 const check = (name, expected, actual) => record.checks.push({ name, expected, actual: structuredClone(actual), ok: JSON.stringify(actual) === JSON.stringify(expected) });
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const until = async (what, fn, ms = 15_000) => {
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(200)) if (fn()) return;
+  throw new Error(`Timed out waiting for ${what}.`);
+};
 const heading = (page) => page.evaluate(() => document.querySelector("h1")?.textContent);
 const paths = (list, layer) => [...new Set(list.filter((b) => b.host === "attacker.test" && b.layer === layer).map((b) => new URL(b.url).pathname))].toSorted();
 const byName = (a, b) => `${a.name}${a.domain}`.localeCompare(`${b.name}${b.domain}`);
@@ -33,6 +37,9 @@ try {
       "network.dns.disablePrefetch": false,
       "network.prefetch-next": true,
       "network.predictor.enabled": true,
+      // The STUN server is on 127.0.0.1. Firefox skips loopback for WebRTC by default; a real
+      // attacker uses a remote STUN server, which needs no pref. Allow loopback so the test sees it.
+      "media.peerconnection.ice.loopback": true,
     },
   });
   record.firefox = await fox.browser.version();
@@ -55,6 +62,13 @@ try {
   await sleep(500);
   await other.goto(`http://evilbank.localhost:${ports.bank}/`);
   await other.close();
+  // X9: the WebRTC probe sees a positive case first, in your own tab.
+  await user.goto(`${BANK}/webrtc`);
+  await until("STUN packets from your own tab", () => log.udpPackets > 0);
+  check("X9: before the loan, WebRTC in your own tab reaches the UDP listener", true, log.udpPackets > 0);
+  await user.goto(`${BANK}/`);
+  await sleep(1000);
+  const packetsBefore = log.udpPackets;
   const before = await userCookies();
   check("X1: your cookies before the loan", ["evil", "framed", "session", "theme", "widget"], before.map((c) => c.name));
   await shot(user, "your-tab-before.png");
@@ -71,10 +85,6 @@ try {
   check("X2: the loan container exists", { name: "Agent · bank.localhost", color: "purple", icon: "fingerprint" }, (({ name, color, icon }) => ({ name, color, icon }))(containers.find((c) => c.cookieStoreId === loan.cookieStoreId) ?? {}));
   // Puppeteer does not see tabs in a container made after it started, so
   // the test reads the bank server log, and the extension takes screenshots.
-  const until = async (what, fn, ms = 15_000) => {
-    for (const end = Date.now() + ms; Date.now() < end; await sleep(200)) if (fn()) return;
-    throw new Error(`Timed out waiting for ${what}.`);
-  };
   const shotTab = async (tabId, file) => {
     if (!shots) return;
     const url = await ext.evaluate((id) => browser.tabs.captureTab(id), tabId);
@@ -120,6 +130,7 @@ try {
   check("X5: a block names the page that sent it", `${BANK}/inbox`, blocked.find((b) => b.url.includes("/fetch"))?.initiator);
   check("X5: the attacker got no request", [], log.attacker);
   check("X5: the attacker got no connection", 0, log.attackerConnections);
+  check("X9: while the loan is active, the loan page's WebRTC try sends no packet", [true, packetsBefore], [log.reports[0].includes("webrtc: blocked"), log.udpPackets]);
   check("X5: the page saw its tries fail", true, log.reports[0].some((t) => t === "fetch: blocked") && log.reports[0].some((t) => t === "image: blocked"));
   await shotTab(loan.tabId, "loan-tab-blocked.png");
 
@@ -161,6 +172,9 @@ try {
   check("X7: your own tab is still signed in", "Signed in as sam", await heading(user));
   check("X7: your cookies did not change, values and flags included", true, JSON.stringify(before) === JSON.stringify(await userCookies()));
   await shot(user, "your-tab-after.png");
+  await user.goto(`${BANK}/webrtc`);
+  await until("STUN packets after the revoke", () => log.udpPackets > packetsBefore);
+  check("X9: after the revoke, WebRTC works again in your own tab", true, log.udpPackets > packetsBefore);
 
   // X8: a short loan ends by itself at its alarm, with a hidden tab.
   const short = await send({ type: "lend", options: { domain: "www.bank.localhost", scope: "read", ttlMs: 3000, url: `${BANK}/`, hidden: true } });
@@ -174,7 +188,7 @@ try {
   await fox?.close();
   await sites.close();
 }
-record.passed = !record.error && record.checks.length >= 24 && record.checks.every((c) => c.ok);
+record.passed = !record.error && record.checks.length >= 30 && record.checks.every((c) => c.ok);
 // One check per line, so the diff of two runs shows each check that changed.
 const { checks, ...head } = record;
 const path = `artifacts/e2e-${new Date().toISOString().slice(0, 10)}.json`;

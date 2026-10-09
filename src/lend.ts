@@ -1,7 +1,7 @@
 // Lend one login (docs/failure-modes.md K10, K12, L2, L3, L10-L12), and the
 // teardown that both a failed lend and a revoke use (L5, L6).
 import type { Host, PublicSuffix, Scope } from "foxgate";
-import type { BrowserLike } from "./browser.js";
+import type { BrowserLike, BrowserSettingName } from "./browser.js";
 import { planCopy, type Cookie, type SkippedCookie } from "./cookies.js";
 import { judge } from "./egress.js";
 import { FoxlendError } from "./errors.js";
@@ -34,8 +34,8 @@ export interface LoanContext {
   now: () => number;
   publicSuffix: PublicSuffix;
   maxTtlMs: number;
-  /** Turn off network prediction while a loan is active (E6). */
-  stopPrediction: boolean;
+  /** The browser-wide settings to turn off while a loan is active (E6, E17). */
+  settings: BrowserSettingName[];
 }
 
 export const CONTAINER = { prefix: "Agent · ", color: "purple", icon: "fingerprint" } as const;
@@ -45,9 +45,22 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const cookieUrl = (c: Cookie) => `${c.secure ? "https" : "http"}://${c.domain.replace(/^\./, "")}${c.path}`;
 const randomId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-/** Give network prediction back when no loan is left (E6, L15). */
-export async function givePredictionBack(ctx: LoanContext): Promise<void> {
-  if (ctx.stopPrediction && (await ctx.store.loans()).length === 0) await ctx.browser.privacy?.network.networkPredictionEnabled.clear({}).catch(() => false);
+/** Give the browser-wide settings back when no loan is left (E6, E17, L15). */
+export async function releaseSettings(ctx: LoanContext): Promise<void> {
+  if ((await ctx.store.loans()).length > 0) return;
+  for (const name of ctx.settings) await ctx.browser.privacy?.network[name]?.clear({}).catch(() => false);
+}
+
+/** Turn each browser-wide setting off, or throw `setting-failed` (E18). */
+async function holdSettings(ctx: LoanContext): Promise<void> {
+  for (const name of ctx.settings) {
+    const setting = ctx.browser.privacy?.network[name];
+    const refuse = (why: string) => new FoxlendError("setting-failed", `foxlend cannot turn off privacy.network.${name}: ${why}. Pass ${name === "peerConnectionEnabled" ? "stopWebRtc" : "stopPrediction"}: false to lend with it on.`);
+    if (!setting) throw refuse("the privacy API is missing (add the privacy permission)");
+    const { levelOfControl } = await setting.get({});
+    if (!/^controll(able|ed)_by_this_extension$/.test(levelOfControl)) throw refuse(`it is ${levelOfControl}`);
+    if (!(await setting.set({ value: false }).catch(() => false))) throw refuse("Firefox did not change it");
+  }
 }
 
 /** Close the loan tabs, clear and remove the container, and revoke the grant. */
@@ -101,6 +114,13 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
   }
 
   return ctx.store.serial(async () => {
+    // DNS prefetch and WebRTC are outside both guard layers (E6, E17). Without them off, no loan (E18).
+    try {
+      await holdSettings(ctx);
+    } catch (error) {
+      await releaseSettings(ctx);
+      throw error;
+    }
     const createdAt = ctx.now();
     let loan: Loan = {
       id: randomId(),
@@ -147,8 +167,6 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
       await put({ grantId: grant.id });
       b.alarms.create(alarmName(loan.id), { when: loan.expiresAt });
       await put({ state: "active", copied, skipped });
-      // DNS prefetch is outside both guard layers (E6). A setting that another extension controls stays as it is.
-      if (ctx.stopPrediction) await b.privacy?.network.networkPredictionEnabled.set({ value: false }).catch(() => false);
       const tab = await b.tabs.create({ url, cookieStoreId: container.cookieStoreId, active: !options.hidden });
       let hidden = false;
       if (options.hidden && tab.id !== undefined) hidden = await b.tabs.hide([tab.id]).then(() => true, () => false);
@@ -159,7 +177,7 @@ export async function lendLoan(ctx: LoanContext, options: LendOptions): Promise<
       try {
         await teardown(ctx, loan);
         await ctx.store.save((await ctx.store.loans()).filter((l) => l.id !== loan.id));
-        await givePredictionBack(ctx);
+        await releaseSettings(ctx);
       } catch {
         await put({ state: "revoking" }).catch(() => undefined);
       }

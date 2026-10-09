@@ -60,7 +60,7 @@ lendForFifteenMinutes();
 | A QA engineer | Agent tests that run with a test account on staging | Log in once in your own tab. Lend the staging host to each test run with `match: "host"` and a short time limit. The test cannot reach other hosts, such as production. |
 | A researcher or analyst | Read-only research in their own accounts (a bank export, a reading list) | Lend with the `read` scope. The foxgate grant gives read tools only. The allow list stops a page that tries to send the data out. |
 | A browser agent author (for example foxmate) | A personal agent that runs in the user's own Firefox | The agent asks for a login. The user lends it from the sidebar and sees each blocked request. |
-| A security tester | A test page for prompt-injection data theft | The E2E test in this repo is a working example: a hidden injection tries nine ways to send data, and the guard blocks each one. |
+| A security tester | A test page for prompt-injection data theft | The E2E test in this repo is a working example: a hidden injection tries ten ways to send data, and foxlend stops each one. |
 
 ## How it works
 
@@ -96,9 +96,12 @@ flowchart LR
    is not on the list. A `proxy.onRequest` listener sends the same requests
    to a SOCKS proxy that does not exist. That layer also stops a
    `<link rel="preconnect">`, which `webRequest` never sees.
-7. While a loan is active, foxlend turns off network prediction (DNS
-   prefetch and link prefetch). It gives the setting back after the last
-   loan.
+7. While a loan is active, foxlend turns off two settings for all of
+   Firefox: network prediction (DNS prefetch and link prefetch) and WebRTC.
+   Neither guard layer sees DNS prefetch or WebRTC traffic. If foxlend
+   cannot turn a setting off, for example because another extension
+   controls it, `lend` refuses the loan. foxlend gives the settings back
+   after the last loan.
 8. `revoke` blocks every request from the container first. Then it closes
    the tabs, clears the cookies, local storage, and IndexedDB of the
    container, removes the container, and revokes the grant. An alarm runs
@@ -144,7 +147,8 @@ object.
 | `now` | `Date.now` | The clock, in ms since 1970. |
 | `maxTtlMs` | 24 hours | The longest loan. |
 | `proxyLayer` | `true` when `browser.proxy` exists | Add the `proxy.onRequest` layer. |
-| `stopPrediction` | `true` when `browser.privacy` exists | Turn off network prediction while a loan is active. |
+| `stopPrediction` | `true` | Turn off network prediction while a loan is active. When foxlend cannot, `lend` throws `setting-failed`. `false` accepts the risk. |
+| `stopWebRtc` | `true` | Turn off WebRTC while a loan is active. When foxlend cannot, `lend` throws `setting-failed`. `false` accepts the risk. |
 | `storageKey` | `"foxlend"` | The `browser.storage.local` key for the loans. |
 
 ### The lender
@@ -187,7 +191,8 @@ A `Loan` has these fields:
 ### Errors
 
 `FoxlendError` has a `code`: `bad-domain`, `bad-allow`, `bad-ttl`, `bad-url`,
-`bad-scope`, `lend-failed`, `revoke-failed`, or `storage-error`. A failed
+`bad-scope`, `setting-failed`, `lend-failed`, `revoke-failed`, or
+`storage-error`. A failed
 lend undoes its steps. A failed revoke keeps blocking the container, and the
 next start tries again.
 
@@ -221,7 +226,9 @@ with a hidden prompt injection. The page tries to send the account number to
 `attacker.test` in nine ways: fetch, an image, a beacon, a WebSocket, a
 frame, a redirect, a service worker, a preconnect, and a link prefetch. Each
 one is blocked and logged. The attacker server gets no request and no
-connection. Your own
+connection. The page also tries WebRTC to a local UDP listener. Before the
+loan, your own tab reaches that listener, so the probe works. During the
+loan, the page sends it no packet. Your own
 tab can still reach `attacker.test`. After Revoke, the container is gone, and
 your own tab is still logged in with the same cookies.
 
@@ -234,6 +241,7 @@ your own tab is still logged in with the same cookies.
 | `webRequest.onBeforeRequest` (blocking, `details.cookieStoreId`) | [webRequest](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/webRequest/onBeforeRequest) | Cancel each request from a loan container to a host that is not on the list. Permissions `webRequest` and `webRequestBlocking`. |
 | `proxy.onRequest` (`details.cookieStoreId`) | [proxy.onRequest](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/proxy/onRequest) | The second layer. It also stops speculative connections. |
 | `privacy.network.networkPredictionEnabled` | [privacy.network](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/privacy/network) | Turn off DNS prefetch and link prefetch while a loan is active. |
+| `privacy.network.peerConnectionEnabled` | [privacy.network](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/privacy/network) | Turn off WebRTC while a loan is active. Its UDP traffic passes neither guard layer. |
 | `browsingData.remove` with `cookieStoreId` | [browsingData](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/browsingData/remove) | Clear the cookies, local storage, and IndexedDB of the container. |
 | `tabs.create` with `cookieStoreId`, `tabs.query`, `tabs.remove` | [tabs.create](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/create) | Open the task tab in the container, and close every tab of the loan. |
 | `tabs.hide` | [tabs.hide](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/hide) | Hide the task tab. Permission `tabHide`. |
@@ -262,9 +270,12 @@ your own tab is still logged in with the same cookies.
 - Android has no containers, so foxlend works on desktop Firefox only.
 - foxlend does not detect DNS rebinding. The allow list trusts the DNS of
   the hosts on it.
-- The network prediction setting is for all of Firefox. foxlend turns it off
-  for all tabs while a loan is active. A `<link rel="preconnect">` still
-  happens with the setting off (seen in Firefox 157). The proxy layer stops
+- WebRTC and network prediction are off for all of Firefox while a loan is
+  active, also in your own tabs. No page can start a WebRTC call, for
+  example a video call, until the last loan ends. Without these settings off, WebRTC sends UDP
+  packets that neither guard layer sees (seen in Firefox 157).
+- The network prediction setting does not stop everything. A
+  `<link rel="preconnect">` still happens with the setting off (seen in Firefox 157). The proxy layer stops
   it. The E2E test cannot see DNS lookups, so it does not prove that DNS
   prefetch stops.
 - Firefox cannot clear service workers for one container. Service worker

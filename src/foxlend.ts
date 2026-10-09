@@ -20,8 +20,10 @@ export interface FoxlendOptions {
   maxTtlMs?: number;
   /** Also block through proxy.onRequest. Default: true when `browser.proxy` exists. */
   proxyLayer?: boolean;
-  /** Turn off network prediction while a loan is active. Default: true when `browser.privacy` exists. */
+  /** Turn off network prediction (DNS prefetch, link prefetch) while a loan is active. Default: true. */
   stopPrediction?: boolean;
+  /** Turn off WebRTC while a loan is active. Default: true. */
+  stopWebRtc?: boolean;
   /** The browser.storage.local key. Default: "foxlend". */
   storageKey?: string;
 }
@@ -55,7 +57,10 @@ export function createFoxlend(options: FoxlendOptions): Foxlend {
     now: options.now ?? Date.now,
     publicSuffix,
     maxTtlMs: options.maxTtlMs ?? 24 * 60 * 60 * 1000,
-    stopPrediction: options.stopPrediction ?? browser.privacy !== undefined,
+    settings: [
+      ...(options.stopPrediction === false ? [] : ["networkPredictionEnabled" as const]),
+      ...(options.stopWebRtc === false ? [] : ["peerConnectionEnabled" as const]),
+    ],
   };
   attachGuard({ browser, store, now: ctx.now, publicSuffix, proxyLayer: options.proxyLayer ?? browser.proxy !== undefined, onBlocked: blocked.emit });
   const revoke = (id: string, reason: RevokedEvent["reason"]) => store.serial(() => revokeNow(ctx, id, reason, revoked.emit));
