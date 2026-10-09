@@ -1,6 +1,6 @@
 {
   "name": "foxlend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lend one login to an AI agent in its own Firefox container, and take it back.",
   "type": "module",
   "license": "MIT",
