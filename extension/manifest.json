@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "foxlend — lend one login to an AI agent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Lend one login to an AI agent in its own Firefox container, and take it back.",
   "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png" },
   "browser_specific_settings": {
