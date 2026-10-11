@@ -16,7 +16,7 @@ function renderLoans() {
     ...loans.map((loan) => {
       const li = el("li");
       li.dataset.id = loan.id;
-      const revoke = el("button", "revoke", "Revoke");
+      const revoke = el("button", "revoke danger small", "Revoke");
       revoke.addEventListener("click", () => ask({ type: "revoke", id: loan.id }).then(refresh));
       li.append(
         el("div", "name", loan.containerName),

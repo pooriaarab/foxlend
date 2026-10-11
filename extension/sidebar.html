@@ -6,11 +6,14 @@
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
-    <h1>foxlend</h1>
+    <header>
+      <img class="mark" src="icons/icon-48.png" alt="" width="22" height="22" />
+      <h1>foxlend</h1>
+    </header>
     <p class="lede">Lend one login to an AI agent, and take it back.</p>
     <section>
-      <h2>Lend a login</h2>
-      <form id="lend-form">
+      <form id="lend-form" class="card">
+        <h2>Lend a login</h2>
         <label>Site <input id="domain" required placeholder="www.example.com" /></label>
         <label>Start page <input id="url" placeholder="https://www.example.com/" /></label>
         <div class="row">
@@ -32,7 +35,7 @@
         </div>
         <label>Also allow <input id="allow" placeholder="cdn.example.com, *.example.net" /></label>
         <label class="check"><input type="checkbox" id="hidden" /> Hide the agent tab</label>
-        <button type="submit" id="lend-button">Lend login</button>
+        <button type="submit" id="lend-button" class="primary">Lend login</button>
         <output id="lend-result"></output>
       </form>
     </section>
