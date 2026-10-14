@@ -1,138 +1,141 @@
 # foxlend
 
-<p align="center">Lend one login to an AI agent in its own Firefox container, and take it back.</p>
+[![npm version](https://img.shields.io/npm/v/foxlend)](https://www.npmjs.com/package/foxlend)
+[![Downloads per month](https://img.shields.io/npm/dm/foxlend)](https://www.npmjs.com/package/foxlend)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/license/mit)
 
-<p align="center">
-  <a href="https://github.com/pooriaarab/foxlend/actions"><img src="https://github.com/pooriaarab/foxlend/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"/></a>
-</p>
+[Package](https://www.npmjs.com/package/foxlend) · [Setup](#lend-your-first-login) · [API](#api) · [Issues](https://github.com/pooriaarab/foxlend/issues)
 
-An AI agent in your browser can use every site you are logged in to. foxlend
-gives it one. It makes a new Firefox container for the agent, copies the
-cookies of one site into it, and opens the agent's tab there. Pages in that
-container can reach only the lent site and the hosts that you allow. When
-you revoke the loan, or when its time is up, foxlend closes the agent's tabs
-and removes the container with its cookies and site data. Your own tabs stay
-logged in.
-
-foxlend runs in a Firefox extension (Firefox 153 or later, desktop). It
-depends on [foxgate](https://github.com/pooriaarab/foxgate), and each loan
-adds a foxgate grant for the same hosts.
+foxlend is an open-source Firefox WebExtension library for lending one site's login cookies to an AI agent in a separate container.
+It copies cookies, adds a foxgate grant, and filters requests against allowed hosts.
+Revocation closes loan tabs, clears supported site data, removes the container, and revokes the grant.
 
 ## Install
 
 ```bash
-npm i foxlend
+npm install foxlend foxgate
 ```
 
-## Example
+foxlend has one direct runtime dependency, foxgate. Node.js 24 or later is the declared build environment.
+Runtime requires desktop Firefox extension APIs; the included extension requires Firefox 153 or later.
+There are no service credentials or environment variables. The package does not load `.env` files.
 
-Put this in the background script of your extension. The permissions are in
-[Firefox APIs used](#firefox-apis-used).
+## Lend your first login
+
+Create `extension/manifest.json`:
+
+```json
+{
+  "manifest_version": 3,
+  "name": "Loan example",
+  "version": "1.0.0",
+  "browser_specific_settings": { "gecko": { "id": "loan@example.org", "strict_min_version": "153.0" } },
+  "permissions": ["storage", "alarms", "cookies", "contextualIdentities", "browsingData", "tabs", "webRequest", "webRequestBlocking", "proxy", "privacy", "publicSuffix"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "scripts": ["background.js"] }
+}
+```
+
+Save this as `background.js` outside `extension/`:
 
 ```js
 import { createFoxgate } from "foxgate";
 import { createFoxlend, withDefaultRule } from "foxlend";
 
-// Run both at the top level, so Firefox can wake the page for a request or an alarm.
 const publicSuffix = withDefaultRule(browser.publicSuffix);
 const { gate, host } = createFoxgate({ tools: { read_page: "read" }, publicSuffix });
 const lender = createFoxlend({ browser, host, publicSuffix });
-lender.onBlocked.addListener((b) => console.log("blocked", b.type, b.url));
+lender.onBlocked.addListener((event) => console.log("blocked", event.url));
 
-async function lendForFifteenMinutes() {
-  const loan = await lender.lend({ domain: "www.example.com", scope: "read", ttlMs: 15 * 60_000 });
-  console.log(loan.containerName); // "Agent · example.com"
-  const action = { tool: "read_page", args: {}, domain: "www.example.com", scope: "read" };
-  console.log((await gate.check(action)).decision); // "allow"
-  await lender.revoke(loan); // the tab, the cookies, the container, and the grant are gone
+async function example() {
+  const loan = await lender.lend({ domain: "www.example.com", scope: "read", ttlMs: 60_000 });
+  try {
+    console.log("container", loan.containerName, "cookies copied", loan.copied);
+    const action = { tool: "read_page", args: {}, domain: "www.example.com", scope: "read" };
+    console.log("decision", (await gate.check(action)).decision);
+  } finally {
+    console.log("revoked", await lender.revoke(loan));
+  }
 }
-lendForFifteenMinutes();
+example().catch(console.error);
 ```
 
-## Use cases
+Bundle the background script:
 
-| Who | What they build | How foxlend helps |
-|---|---|---|
-| A person who lets an agent book travel | An agent that books a flight with one airline account | Lend the airline site for 30 minutes. The agent cannot open your email or your bank, and a page cannot send your data to other hosts. |
-| A caregiver | Help for a parent with a pharmacy or a utility account | Lend that one login to an agent for a task. Revoke it when the task is done. The parent's other sessions are not shared. |
-| A freelancer | One container for each client account, for example each client's CMS | Each loan is a separate container with a separate cookie jar and allow list. Revoke one client without a change to the others. |
-| A QA engineer | Agent tests that run with a test account on staging | Log in once in your own tab. Lend the staging host to each test run with `match: "host"` and a short time limit. The test cannot reach other hosts, such as production. |
-| A researcher or analyst | Read-only research in their own accounts (a bank export, a reading list) | Lend with the `read` scope. The foxgate grant gives read tools only. The allow list stops a page that tries to send the data out. |
-| A browser agent author (for example foxmate) | A personal agent that runs in the user's own Firefox | The agent asks for a login. The user lends it from the sidebar and sees each blocked request. |
-| A security tester | A test page for prompt-injection data theft | The E2E test in this repo is a working example: a hidden injection tries ten ways to send data, and foxlend stops each one. |
+```bash
+npx esbuild background.js --bundle --format=iife --outfile=extension/background.js
+```
+
+Open `about:debugging#/runtime/this-firefox`, then load the manifest as a temporary add-on.
+Inspect its background console. Expect `decision allow` and `revoked true` after the container message.
+The example domain needs no login. Replace it with your test host after signing in through the default container.
+A loan can succeed with zero copied cookies; check `copied` and `skipped` for your site's session.
 
 ## How it works
 
-```mermaid
-flowchart LR
-  L["lend(domain, scope, ttlMs, allow)"] --> R[Write the loan record]
-  R --> C["New container: Agent · site, purple, fingerprint"]
-  C --> K[Copy the site's cookies, expiry capped at the loan end]
-  K --> G[Add a foxgate grant for the same hosts]
-  G --> T[Open the task tab in the container]
-  T --> A{Request from the container}
-  A -- host on the allow list --> P[Pass]
-  A -- any other host --> B[Cancel and report on onBlocked]
-  T --> V["revoke(), the TTL alarm, or the start sweep"]
-  V --> X[Close tabs, clear data, remove the container, revoke the grant]
+```text
+lend -> save loan -> create container -> copy cookies -> foxgate grant -> task tab
+requests -> host allow list -> webRequest cancel + optional proxy guard
+revoke / expiry / startup -> block -> close tabs -> clear data -> remove container -> revoke grant
 ```
 
-1. `lend` refuses the loan unless the extension has access to all sites,
-   because without it the guard cannot see the loan's requests. If you
-   remove that access later in `about:addons`, foxlend revokes every loan.
-   Then `lend` finds the site of the domain (the registrable domain,
-   eTLD+1) with `browser.publicSuffix`. The loan allows the site, its subdomains, and the
-   hosts in `allow`.
-2. It writes the loan record first, so a crash cannot leave a container that
-   no record knows about.
-3. It creates a container and copies the cookies of that site from your
-   default container. It keeps `HttpOnly`, `Secure`, `SameSite`, the path,
-   host-only, and the partition key (Total Cookie Protection). Each copy
-   expires at the loan end. foxlend never writes to your default container.
-4. It adds a foxgate grant with the same hosts and the same end time. Your
-   agent loop checks each action with that grant.
-5. It opens the task tab in the container. With `hidden: true`, it hides the
-   tab from the tab strip.
-6. Two guard layers judge each request from the container. A blocking
-   `webRequest.onBeforeRequest` listener cancels a request to any host that
-   is not on the list. A `proxy.onRequest` listener sends the same requests
-   to a SOCKS proxy that does not exist. That layer also stops a
-   `<link rel="preconnect">`, which `webRequest` never sees.
-7. While a loan is active, foxlend turns off two settings for all of
-   Firefox: network prediction (DNS prefetch and link prefetch) and WebRTC.
-   Neither guard layer sees DNS prefetch or WebRTC traffic. If foxlend
-   cannot turn a setting off, for example because another extension
-   controls it, `lend` refuses the loan. foxlend gives the settings back
-   after the last loan.
-8. `revoke` blocks every request from the container first. Then it closes
-   the tabs, clears the cookies, local storage, and IndexedDB of the
-   container, removes the container, and revokes the grant. An alarm runs
-   the same revoke at the loan end. When Firefox starts, foxlend revokes the
-   loans whose time is over.
+Each loan has a time to live (TTL), with a default maximum of 24 hours.
+An alarm revokes expired loans. Startup sweeps retry unfinished cleanup and remove orphaned loan containers.
+Cookie copies preserve supported attributes and expire no later than the loan end.
+By default, active loans disable network prediction and WebRTC across Firefox.
 
-```mermaid
-sequenceDiagram
-  participant P as Page in the loan tab
-  participant F as Firefox
-  participant W as foxlend webRequest layer
-  participant X as foxlend proxy layer
-  participant A as attacker.test
-  Note over P: Hidden text tells the agent to send the account number to attacker.test
-  P->>F: fetch, image, beacon, WebSocket, frame, redirect, service worker
-  F->>W: onBeforeRequest, cookieStoreId = loan container
-  W-->>F: cancel (host not on the allow list)
-  W-->>W: onBlocked: URL, type, initiator
-  P->>F: link rel=preconnect
-  F->>X: proxy.onRequest, type speculative
-  X-->>F: SOCKS proxy 127.0.0.1:9 (nothing answers)
-  Note over A: No request and no connection arrive
-```
+## Why it exists
 
-Every failure mode has a test or an E2E check. See
-[docs/failure-modes.md](docs/failure-modes.md).
+Firefox containers separate cookie stores. An agent also needs explicit loan expiry, cookie transfer, and allowed request hosts.
+foxlend combines these steps with foxgate grants in an extension library.
+Mozilla Multi-Account Containers and Temporary Containers address other container workflows.
+Do not combine tab-moving container extensions with loan enforcement; see the limits below.
 
-## API
+## Compare
+
+Checked 2026-10-14 against source and the linked project descriptions.
+
+| Property | foxlend | [Mozilla Multi-Account Containers](https://github.com/mozilla/multi-account-containers) | [Temporary Containers](https://github.com/stoically/temporary-containers) |
+|---|---|---|---|
+| Main scope | Timed login loans for agents | Separate browser identities | Disposable browser containers |
+| Surface | Extension library and demo sidebar | Firefox add-on | Firefox add-on |
+| Configuration | JavaScript loan options | Add-on controls | Add-on preferences |
+| Loan lifecycle | `lend`, alarm, `revoke`, startup sweep | Identity containers | Automatic container disposal |
+
+## Coverage
+
+| Integration | Status | Role |
+|---|---|---|
+| Mozilla Firefox desktop | Implemented | Containers, cookies, request guards, alarms, privacy settings |
+| foxgate | Implemented | Matching host grants and four scopes: `read`, `fill`, `submit`, `pay` |
+| Chrome / Chromium | — | No runtime adapter |
+| Firefox for Android | — | Required container APIs unavailable |
+
+There are two implemented integrations and two request guard layers in source.
+The proxy layer is optional and defaults on when the API exists.
+Local tests use browser stand-ins. This rewrite does not claim a new real-browser or credentialed service check.
+
+## Common use cases
+
+1. Firefox agent authors: lend a test account and check each action through foxgate.
+2. Quality engineers: use exact-host loans for a staging site in desktop Firefox.
+3. Client tooling authors: create separate Firefox cookie stores for client account tasks.
+4. Security researchers: test off-list request blocking with the included Firefox fixture sites.
+
+## Features
+
+- **Cookie transfer:** copies eligible default-container cookies with capped expiry and reports skipped copies.
+- **Host control:** supports site-wide or exact-host matching, plus explicit allowed hosts.
+- **Revocation:** combines manual cleanup, TTL alarms, and startup recovery.
+- **Events:** reports blocked requests and completed revocations.
+- **Demo sidebar:** lists loans and blocked requests in the bundled extension.
+
+## Runtime surfaces
+
+foxlend runs in a Firefox background script. Register one lender at the top level.
+It has no CLI or Model Context Protocol (MCP) server and exports no MCP tools.
+
+### API
 
 This package is a library only. It has no CLI and no MCP server, because
 every part needs WebExtension APIs that exist only inside Firefox.
@@ -210,35 +213,7 @@ next start tries again.
 | `judge(request, loans, now, publicSuffix)` | The guard decision for one request. |
 | `DEAD_PROXY`, `CONTAINER` | The proxy that blocked requests go to, and the container name prefix, color, and icon. |
 
-### Demo extension
-
-`extension/` is a demo for Firefox 153+. Its sidebar lends the current site
-with a scope, a time limit, and an allow list. It lists the active loans with
-Revoke, and it shows a live log of blocked requests.
-
-Install from AMO: [addons.mozilla.org/firefox/addon/foxlend](https://addons.mozilla.org/firefox/addon/foxlend/)
-(pending AMO review; the link works after approval).
-
-```bash
-pnpm install
-pnpm e2e          # the full pitch flow in Firefox; writes artifacts/e2e-<date>.json
-pnpm build:ext    # builds dist-ext/; load it from about:debugging
-```
-
-The E2E test serves a bank on `www.bank.localhost` with a login, and an
-attacker on `attacker.test`. You log in to the bank in your own tab. Then the
-test lends the bank from the sidebar. The agent tab opens logged in, on a page
-with a hidden prompt injection. The page tries to send the account number to
-`attacker.test` in nine ways: fetch, an image, a beacon, a WebSocket, a
-frame, a redirect, a service worker, a preconnect, and a link prefetch. Each
-one is blocked and logged. The attacker server gets no request and no
-connection. The page also tries WebRTC to a local UDP listener. Before the
-loan, your own tab reaches that listener, so the probe works. During the
-loan, the page sends it no packet. Your own
-tab can still reach `attacker.test`. After Revoke, the container is gone, and
-your own tab is still logged in with the same cookies.
-
-## Firefox APIs used
+### Firefox APIs used
 
 | API | MDN | Why |
 |---|---|---|
@@ -260,7 +235,7 @@ your own tab is still logged in with the same cookies.
 | `sidebarAction` (`sidebar_action`) | [sidebarAction](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/sidebarAction) | The demo sidebar. Demo only. |
 | `tabs.captureTab` | [tabs.captureTab](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs/captureTab) | The E2E test takes a screenshot of the loan tab. Test only. |
 
-## Limits
+## Delivery and behavior limits
 
 - A lent cookie still lets the agent act as you on that site. The allow list
   limits where data can go. It does not limit what the agent does on the
@@ -300,8 +275,7 @@ your own tab is still logged in with the same cookies.
   Containers or Temporary Containers) can open a URL that foxlend blocked in
   another container, outside the loan. Do not use them with foxlend.
 - When foxlend cannot read its loan records (a storage error), the guard
-  blocks requests from all your containers other than the default one, not
-  only the loan containers. This is on purpose: it fails closed.
+  blocks requests from containers other than the default and private stores. This is on purpose: it fails closed.
 - Run one lender, in the background page. Two lenders on the same storage,
   for example one in a sidebar and one in the background, can overwrite each
   other's records.
@@ -313,22 +287,78 @@ your own tab is still logged in with the same cookies.
   token) are not capped, so they stay valid until that revoke. The same
   holds when a revoke fails or the extension is off.
 
-## Part of the fox primitives
+## Integration guides
 
-```mermaid
-flowchart LR
-  foxkit[foxkit] -- template --> foxlend[foxlend]
-  foxgate[foxgate] --> foxlend
-  foxlend --> foxmate[foxmate]
-  click foxkit "https://github.com/pooriaarab/foxkit"
-  click foxgate "https://github.com/pooriaarab/foxgate"
-  click foxlend "https://github.com/pooriaarab/foxlend"
-  click foxmate "https://github.com/pooriaarab/foxmate"
+- [Firefox permission reference](#firefox-apis-used): browser APIs and required capabilities.
+- [Loan configuration](#lend-options): scopes, TTL, exact-host matching, and allowed hosts.
+- [Library API](#api): lifecycle methods, events, and errors.
+
+## Status
+
+Version 0.1.3 is an early release. APIs can change before 1.0.
+Use [GitHub issues](https://github.com/pooriaarab/foxlend/issues) for support.
+Public case studies are not yet published in this repository.
+AMO installation is not a prerequisite for the library; load the bundled extension locally for development.
+
+## FAQ
+
+### What is foxlend?
+
+foxlend lends eligible login cookies to a separate Firefox container for an agent task.
+It adds request host controls and a matching foxgate grant.
+
+### Which integrations are verified?
+
+foxlend implements Firefox and foxgate integration paths with local tests.
+This rewrite checks the source and local gate; it does not add a real-browser verification claim.
+
+### Does foxlend provide a managed browser service?
+
+foxlend runs inside your Firefox extension.
+You supply the browser, agent loop, and any model service.
+
+### How is foxlend different from Mozilla Multi-Account Containers?
+
+foxlend exposes a timed cookie-loan API with host guards and foxgate grants.
+Mozilla Multi-Account Containers provides separate browser identities through an add-on.
+
+### How is foxlend different from Temporary Containers?
+
+foxlend copies an existing site's cookies into a loan container and manages its grant.
+Temporary Containers provides disposable browser containers.
+
+### Does read scope make the website read-only?
+
+foxlend assigns a foxgate scope, which your agent loop must check before each action.
+Its network guard checks hosts rather than website actions or HTTP methods.
+
+### Does revocation erase every trace of a session?
+
+foxlend clears supported cookie, local storage, and IndexedDB data during cleanup.
+Service worker data can remain, and a site can retain server-side session records.
+
+### Can data leave through an allowed host?
+
+foxlend allows network requests to hosts on the loan's list.
+An upload or comment to an allowed host can still disclose data.
+
+### Does foxlend affect my own browser tabs?
+
+foxlend leaves default-container cookies untouched.
+Its default network prediction and WebRTC settings apply across Firefox while loans remain active.
+
+## Development
+
+```bash
+pnpm install --frozen-lockfile
+pnpm ci:local
+pnpm e2e
 ```
 
-foxlend depends on foxgate for the grant that matches each loan. foxmate,
-the reference agent, lends logins with foxlend.
+The local gate includes library tests, extension build, web-ext lint, and AMO listing checks.
+Browser tests require Firefox. Set `FIREFOX` when binary lookup fails.
+Build with `pnpm build:ext`, then load `dist-ext/manifest.json` for the sidebar demo.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://opensource.org/license/mit)
