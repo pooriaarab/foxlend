@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "foxlend — lend one login to an AI agent",
+  "version": "0.1.4",
+  "description": "Lend one login to an AI agent in its own Firefox container, and take it back.",
+  "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png" },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "foxlend@pooriaarab",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "alarms",
+    "cookies",
+    "contextualIdentities",
+    "browsingData",
+    "tabs",
+    "tabHide",
+    "webRequest",
+    "webRequestBlocking",
+    "proxy",
+    "privacy",
+    "publicSuffix"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "sidebar_action": {
+    "default_title": "foxlend",
+    "default_panel": "sidebar.html",
+    "default_icon": { "48": "icons/icon-48.png", "96": "icons/icon-96.png" },
+    "open_at_install": true
+  }
+}
